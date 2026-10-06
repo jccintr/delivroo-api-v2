@@ -2,6 +2,7 @@ import db from '../db/knex.js';
 import { HttpError, notFound } from '../utils/errors.js';
 import { variantDto } from '../utils/dto.js';
 import { loadProduct, loadProducts } from '../services/catalog.service.js';
+import { deleteImage } from '../utils/images.js';
 
 const PRODUCT_COLUMNS = {
   categoryId: 'category_id', name: 'name', description: 'description',
@@ -73,6 +74,7 @@ export const remove = async (req, res) => {
   const id = Number(req.params.id);
   await loadProduct(req.user.id, id);
   await db('products').where({ id, store_id: req.user.id }).del();
+  await deleteImage('product', id);
   res.status(204).end();
 };
 

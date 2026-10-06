@@ -24,6 +24,24 @@ const authed = { 401: R[401] };
 
 const secured = [{ bearerAuth: [] }];
 
+// upload de imagem (multipart/form-data) — mesmo padrão em logo, produto e opção
+const imageBody = (field) => ({
+  required: true,
+  content: {
+    'multipart/form-data': {
+      schema: { type: 'object', required: [field], properties: { [field]: { type: 'string', format: 'binary', description: 'JPEG, PNG ou WebP, até 2 MB' } } },
+    },
+  },
+});
+const imageUploadResponses = {
+  200: ok('Imagem salva no Cloudinary e URL gravada', { type: 'object', properties: { message: { type: 'string' }, imageUrl: { type: 'string', format: 'uri' } } }),
+  400: errRef('Sem arquivo, formato inválido ou maior que 2 MB'),
+  404: R[404],
+  503: errRef('Cloudinary não configurado no servidor'),
+  401: R[401],
+};
+
+
 // atalhos para as 4 operações de CRUD simples (zonas, pagamentos, categorias)
 function crud({ tag, base, schema, createSchema, updateSchema, createExample, label }) {
   return {
@@ -82,6 +100,7 @@ export const openapi = {
       '- Dinheiro em **centavos** inteiros (`priceCents: 4500` = R$ 45,00). O cliente **nunca** envia preços: o servidor recalcula tudo no pedido.',
       '- Produto = **variações** (tamanho/porção; preço base) + **grupos de opções** (sabores, borda, adicionais…). Pizza é só um produto com variações Broto/Grande e grupos Sabores/Borda — não há flag especial.',
       '- Erros: `{ "error": "mensagem" }`; validação (400) traz também `details: [{ field, message }]`.',
+      '- Imagens: upload `multipart/form-data` (JPEG/PNG/WebP, até 2 MB) para o Cloudinary; a URL volta no próprio recurso.',
       '- Rotas da loja ficam sempre isoladas pela loja do token: um ID de outra loja responde 404.',
     ].join('\n'),
   },
@@ -441,6 +460,15 @@ export const openapi = {
         responses: { 200: ok('Loja atualizada', ref('Store')), 400: R[400], ...authed },
       },
     },
+    '/api/stores/me/logo': {
+      patch: {
+        tags: ['Conta'], summary: 'Enviar logo da loja (upload)',
+        description: 'Envie como **multipart/form-data**, campo `logo`. A imagem é recortada em 400×400 e enviada ao Cloudinary; a URL é gravada em `logoUrl`. Enviar de novo substitui a anterior.',
+        security: secured, requestBody: imageBody('logo'),
+        responses: { ...imageUploadResponses, 200: ok('Logo atualizada', { type: 'object', properties: { message: { type: 'string' }, logoUrl: { type: 'string', format: 'uri' } } }) },
+      },
+      delete: { tags: ['Conta'], summary: 'Remover logo da loja', security: secured, responses: { 204: R[204], ...authed } },
+    },
     '/api/stores/me/business-hours': {
       get: { tags: ['Configurações'], summary: 'Listar horários de funcionamento', security: secured, responses: { 200: ok('Horários', arrayOf('BusinessHour')), ...authed } },
       put: {
@@ -478,6 +506,14 @@ export const openapi = {
         responses: { 200: ok('Produto', ref('Product')), 400: R[400], 404: R[404], 422: R[422], ...authed },
       },
       delete: { tags: ['Catálogo'], summary: 'Remover produto', description: 'Pedidos antigos continuam intactos (guardam cópia de nomes e preços).', security: secured, parameters: [idParam()], responses: { 204: R[204], 404: R[404], ...authed } },
+    },
+    '/api/stores/products/{id}/image': {
+      patch: {
+        tags: ['Catálogo'], summary: 'Enviar imagem do produto (upload)',
+        description: '**multipart/form-data**, campo `image` (JPEG/PNG/WebP, máx. 2 MB). A URL fica em `imageUrl` do produto e no cardápio público.',
+        security: secured, parameters: [idParam('id', 'ID do produto')], requestBody: imageBody('image'), responses: imageUploadResponses,
+      },
+      delete: { tags: ['Catálogo'], summary: 'Remover imagem do produto', security: secured, parameters: [idParam('id', 'ID do produto')], responses: { 204: R[204], 404: R[404], ...authed } },
     },
     '/api/stores/products/{id}/variants': {
       post: {
@@ -534,6 +570,14 @@ export const openapi = {
         requestBody: body(ref('OptionCreate'), { name: 'Portuguesa', priceCents: 4000, prices: { 1: 4000, 2: 5500 } }),
         responses: { 201: ok('Opção criada', ref('Option')), 400: R[400], 404: R[404], 422: R[422], ...authed },
       },
+    },
+    '/api/stores/options/{id}/image': {
+      patch: {
+        tags: ['Catálogo'], summary: 'Enviar imagem da opção (upload)',
+        description: '**multipart/form-data**, campo `image` (JPEG/PNG/WebP, máx. 2 MB).',
+        security: secured, parameters: [idParam('id', 'ID da opção')], requestBody: imageBody('image'), responses: imageUploadResponses,
+      },
+      delete: { tags: ['Catálogo'], summary: 'Remover imagem da opção', security: secured, parameters: [idParam('id', 'ID da opção')], responses: { 204: R[204], 404: R[404], ...authed } },
     },
     '/api/stores/options/{id}': {
       patch: {

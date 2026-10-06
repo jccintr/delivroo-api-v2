@@ -1,4 +1,5 @@
 import db from '../db/knex.js';
+import { deleteImage } from '../utils/images.js';
 import { HttpError, notFound } from '../utils/errors.js';
 import { assertGroupRules, assertVariantsOfStore, loadGroups } from '../services/catalog.service.js';
 
@@ -108,7 +109,9 @@ export const update = async (req, res) => {
 export const remove = async (req, res) => {
   const id = Number(req.params.id);
   await findGroup(req.user.id, id);
+  const optionIds = (await db('options').where({ group_id: id }).whereNotNull('image_url').select('id')).map((o) => o.id);
   await db('option_groups').where({ id, store_id: req.user.id }).del();
+  for (const optionId of optionIds) await deleteImage('option', optionId);
   res.status(204).end();
 };
 
@@ -161,5 +164,6 @@ export const removeOption = async (req, res) => {
   const id = Number(req.params.id);
   await findOption(req.user.id, id);
   await db('options').where({ id }).del();
+  await deleteImage('option', id);
   res.status(204).end();
 };

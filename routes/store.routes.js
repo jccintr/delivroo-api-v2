@@ -7,6 +7,8 @@ import { categories } from '../controllers/category.controller.js';
 import * as Product from '../controllers/product.controller.js';
 import * as Group from '../controllers/optionGroup.controller.js';
 import * as Order from '../controllers/order.controller.js';
+import * as Image from '../controllers/image.controller.js';
+import { uploadImage } from '../middlewares/upload.image.js';
 import {
   registerStoreValidator, loginValidator, updateProfileValidator, statusValidator,
   deliveryZoneValidator, paymentMethodValidator, businessHoursValidator,
@@ -30,6 +32,8 @@ router.use(AuthStore);
 router.get('/me', Store.me);
 router.patch('/me', updateProfileValidator, validate, Store.updateProfile);
 router.patch('/me/status', statusValidator, validate, Store.setOpen);
+router.patch('/me/logo', uploadImage('logo'), Image.uploadLogo);
+router.delete('/me/logo', Image.removeLogo);
 router.get('/me/business-hours', Store.listBusinessHours);
 router.put('/me/business-hours', businessHoursValidator, validate, Store.replaceBusinessHours);
 
@@ -53,6 +57,8 @@ router.post('/products', createProductValidator, validate, Product.create);
 router.get('/products/:id', Product.get);
 router.patch('/products/:id', updateProductValidator, validate, Product.update);
 router.delete('/products/:id', Product.remove);
+router.patch('/products/:id/image', uploadImage('image'), Image.uploadProductImage);
+router.delete('/products/:id/image', Image.removeProductImage);
 router.post('/products/:id/variants', createVariantValidator, validate, Product.addVariant);
 router.patch('/products/:id/variants/:variantId', updateVariantValidator, validate, Product.updateVariant);
 router.delete('/products/:id/variants/:variantId', Product.removeVariant);
@@ -65,6 +71,8 @@ router.patch('/option-groups/:id', updateGroupValidator, validate, Group.update)
 router.delete('/option-groups/:id', Group.remove);
 router.post('/option-groups/:id/options', createOptionValidator, validate, Group.addOption);
 router.patch('/options/:id', updateOptionValidator, validate, Group.updateOption);
+router.patch('/options/:id/image', uploadImage('image'), Image.uploadOptionImage);
+router.delete('/options/:id/image', Image.removeOptionImage);
 router.delete('/options/:id', Group.removeOption);
 
 router.get('/orders', Order.list);

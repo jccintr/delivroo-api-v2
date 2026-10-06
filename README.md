@@ -101,3 +101,20 @@ npm run migrate:fresh -- --yes        # sem confirmação
 npm run migrate:fresh -- --drop-only  # só apaga, deixa o banco vazio
 ```
 Com `NODE_ENV=production` o script recusa rodar, a menos que use `--force`. Para o banco de testes: `NODE_ENV=test npm run migrate:fresh -- --yes`.
+
+## Upload de imagens (Cloudinary)
+
+Mesmo padrão da api-delivroo-express-node: `multer` em memória (JPEG/PNG/WebP, máx. 2 MB) → `cloudinary.uploader.upload_stream` → URL salva no banco.
+Configure `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY` e `CLOUDINARY_API_SECRET` no `.env` (sem isso o upload responde 503).
+
+| Endpoint (multipart, requer login) | Campo | Grava em |
+|---|---|---|
+| `PATCH /api/stores/me/logo` (+ `DELETE`) | `logo` | `stores.logo_url` |
+| `PATCH /api/stores/products/:id/image` (+ `DELETE`) | `image` | `products.image_url` |
+| `PATCH /api/stores/options/:id/image` (+ `DELETE`) | `image` | `options.image_url` |
+
+- Cada imagem tem `public_id` previsível (`delivroo/products/product_12`): enviar de novo **substitui** a anterior e apagar não exige guardar nada extra.
+- Apagar produto, opção ou grupo apaga também as imagens no Cloudinary (falha ao apagar nunca derruba a requisição).
+- Os testes usam um Cloudinary falso (`tests/mocks/cloudinary.js`): nada de rede.
+- Exemplo com curl: `curl -X PATCH localhost:3000/api/stores/products/1/image -H "Authorization: Bearer $TOKEN" -F "image=@foto.jpg"`
+- No Swagger (`/docs`) o upload aparece com botão de escolher arquivo.
