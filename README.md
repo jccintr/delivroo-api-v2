@@ -65,7 +65,7 @@ Status: `RECEIVED → PREPARING → (READY → PICKED_UP) | (OUT_FOR_DELIVERY �
 
 ```
 index.js · app.js · knexfile.js
-db/             knex.js, schema.sql (modelo), seed.sql, migrations/
+db/             knex.js, schema.sql (modelo), seed-demo.js (loja de exemplo), migrations/
 routes/         store, public, city
 controllers/    store, config (bairros/pagamentos), category, product, optionGroup, order, public, city
 validators/     store, catalog, order
@@ -118,3 +118,19 @@ Configure `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY` e `CLOUDINARY_API_SECRET
 - Os testes usam um Cloudinary falso (`tests/mocks/cloudinary.js`): nada de rede.
 - Exemplo com curl: `curl -X PATCH localhost:3000/api/stores/products/1/image -H "Authorization: Bearer $TOKEN" -F "image=@foto.jpg"`
 - No Swagger (`/docs`) o upload aparece com botão de escolher arquivo.
+
+## Loja de exemplo (seed)
+
+`npm run seed:demo` (ou `npm run migrate:fresh:seed` para recriar o banco do zero) cria a **Pizzaria Exemplo**, completa, para desenvolver o front do cliente:
+slug `pizzaria-exemplo`, login `loja@exemplo.com` / `123456`, loja aberta, 9 bairros com taxa, 4 formas de pagamento, horários e mensagens de WhatsApp.
+
+| Categoria | Produtos | O que demonstra |
+|---|---|---|
+| Pizzas (4) | Tradicional, Especial, Doce, Calzone | Broto/Grande, até 2 sabores (cobra o mais caro), borda, adicionais, preço por tamanho |
+| Hambúrgueres (8) | X-Burger … Veggie | ponto da carne obrigatório, adicionais repetíveis (2× bacon) |
+| Combos (4) | X-Bacon, Duplo Cheddar, Frango Crispy, Pizza + Refri 2 L | escolhas obrigatórias dentro do combo, acréscimo por sabor |
+| Porções (8) | Batata, Frango a Passarinho, … | Meia/Inteira, molhos extras opcionais |
+| Bebidas (7) | Refrigerante, Suco, Água, Cervejas … | sabor obrigatório, preço vindo da marca |
+| Sobremesas (6) | Brownie, Petit Gâteau, Taça de Sorvete … | calda opcional, até 3 bolas (repete sabor) |
+
+Os dados ficam em `db/seed-demo.js` (preços em centavos). As imagens vêm vazias: envie pelas rotas de upload (`PATCH .../image`).

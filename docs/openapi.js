@@ -77,8 +77,8 @@ const orderExample = {
   cashChangeForCents: 10000,
   notes: 'Sem cebola',
   items: [{
-    productId: 1, variantId: 2, quantity: 1, notes: 'Bem passada',
-    options: [{ groupId: 1, optionId: 1 }, { groupId: 1, optionId: 2 }, { groupId: 2, optionId: 5 }],
+    productId: 1, variantId: 2, quantity: 1, notes: 'Cortar em 12 pedaços',
+    options: [{ groupId: 1, optionId: 2 }, { groupId: 1, optionId: 3 }, { groupId: 4, optionId: 22 }],
   }],
 };
 
@@ -412,7 +412,7 @@ export const openapi = {
     '/api/public/stores/{slug}/orders': {
       post: {
         tags: ['Público'], summary: 'Fazer um pedido',
-        description: 'O servidor recalcula todos os preços e valida as regras dos grupos (mínimo/máximo de escolhas, variação do produto, loja aberta, zona de entrega). O exemplo abaixo usa IDs da loja de exemplo — confira os IDs reais no `GET …/menu`.',
+        description: 'O servidor recalcula todos os preços e valida as regras dos grupos (mínimo/máximo de escolhas, variação do produto, loja aberta, zona de entrega). O exemplo abaixo (Pizza Tradicional grande, meio Calabresa meio Portuguesa, borda de cheddar, paga em dinheiro) usa IDs da loja de exemplo recém-criada por `npm run migrate:fresh:seed` — confira os IDs reais no `GET …/menu`.',
         parameters: [{ name: 'slug', in: 'path', required: true, schema: { type: 'string' }, example: 'pizzaria-exemplo' }],
         requestBody: body(ref('OrderInput'), orderExample),
         responses: { 201: ok('Pedido criado', ref('Order')), 400: R[400], 404: R[404], 409: errRef('Loja fechada (code STORE_CLOSED)'), 422: R[422] },

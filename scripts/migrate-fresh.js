@@ -62,15 +62,10 @@ try {
 
   // 3) opcional: dados de exemplo
   if (args.has('--seed') && !args.has('--drop-only')) {
-    const sql = (await import('node:fs')).readFileSync(new URL('../db/seed.sql', import.meta.url), 'utf8');
-    const { default: bcryptjs } = await import('bcryptjs');
-    await db.raw(sql);
-    await db('stores').where({ slug: 'pizzaria-exemplo' }).update({
-      password_hash: await bcryptjs.hash('123456', 10),
-      is_open: true,
-      opened_at: new Date(),
-    });
-    console.log('Loja de exemplo criada: loja@exemplo.com / 123456  (slug: pizzaria-exemplo)');
+    const { DEMO, seedDemo } = await import('../db/seed-demo.js');
+    const r = await seedDemo(db);
+    console.log(`Loja de exemplo criada: ${r.categories} categorias, ${r.products} produtos, ${r.groups} grupos de opções.`);
+    console.log(`Login: ${DEMO.email} / ${DEMO.password}  (slug: ${DEMO.slug})`);
   }
 } catch (err) {
   console.error('Falhou:', err.message);
