@@ -91,3 +91,13 @@ A especificação OpenAPI crua fica em `/openapi.json` (serve para importar no P
 3. Clique em **Authorize** e cole o token. Pronto: as rotas com cadeado funcionam.
 
 Ao criar/alterar uma rota em `routes/*.routes.js`, documente-a em `docs/openapi.js` — o teste `tests/docs.test.js` falha se faltar alguma.
+
+## Zerar o banco (migrate:fresh)
+
+```bash
+npm run migrate:fresh                 # apaga TODAS as tabelas e recria o schema (pede para digitar o nome do banco)
+npm run migrate:fresh:seed            # idem + loja de exemplo (loja@exemplo.com / 123456)
+npm run migrate:fresh -- --yes        # sem confirmação
+npm run migrate:fresh -- --drop-only  # só apaga, deixa o banco vazio
+```
+Com `NODE_ENV=production` o script recusa rodar, a menos que use `--force`. Para o banco de testes: `NODE_ENV=test npm run migrate:fresh -- --yes`.

@@ -9,6 +9,8 @@
     "dev": "nodemon index.js",
     "migrate": "knex migrate:latest",
     "migrate:rollback": "knex migrate:rollback --all",
+    "migrate:fresh": "node scripts/migrate-fresh.js",
+    "migrate:fresh:seed": "node scripts/migrate-fresh.js --seed",
     "seed:demo": "node scripts/seed-demo.js",
     "test": "vitest run",
     "test:watch": "vitest"
