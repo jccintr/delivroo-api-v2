@@ -80,3 +80,14 @@ scripts/        seed-demo.js
 ## Fica para a próxima fase
 
 Upload de imagens (Cloudinary, hoje `imageUrl`/`logoUrl` recebem uma URL) · e-mail de verificação e recuperação de senha (a tabela `auth_codes` já existe) · push da Expo (`store_devices`) e WebSocket para o painel · painel admin (`admins`) · relatórios (resumo do dia, pedidos por dia, histórico mensal) · `docs/openapi.yaml` + Swagger · limite de requisições nas rotas públicas · script de migração dos dados do Laravel.
+
+## Documentação interativa (Swagger)
+
+Com a API rodando, abra **http://localhost:3000/docs**: lista todos os endpoints, com exemplos, e permite testá-los (*Try it out*).
+A especificação OpenAPI crua fica em `/openapi.json` (serve para importar no Postman/Insomnia) e o código-fonte em `docs/openapi.js`.
+
+1. `npm run seed:demo` (cria a loja de exemplo) e `npm run dev`.
+2. Em `POST /api/stores/login` use `loja@exemplo.com` / `123456` e copie o `token`.
+3. Clique em **Authorize** e cole o token. Pronto: as rotas com cadeado funcionam.
+
+Ao criar/alterar uma rota em `routes/*.routes.js`, documente-a em `docs/openapi.js` — o teste `tests/docs.test.js` falha se faltar alguma.
