@@ -6,7 +6,7 @@
 // As imagens ficam vazias de propósito: envie pelas rotas de upload (PATCH .../image) ou pelo painel.
 import bcryptjs from 'bcryptjs';
 
-export const DEMO = { slug: 'pizzaria-exemplo', email: 'loja@exemplo.com', password: '123456' };
+export const DEMO = { slug: 'pizzaria-modelo', email: 'pizzaria@gmail.com', password: '123456' };
 
 // ------------------------------------------------------------------------------------------------
 // Grupos de opções (reutilizáveis entre produtos)
