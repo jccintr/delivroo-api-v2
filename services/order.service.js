@@ -231,3 +231,13 @@ export async function getOrderDto(conn, where) {
   const [dto] = await hydrateOrders(conn, [row]);
   return dto;
 }
+
+/** pedido como o cliente enxerga (sem telefone), com dados da loja; usado no acompanhamento e nos eventos em tempo real */
+export async function getTrackingDto(conn, where) {
+  const row = await conn('orders').where(where).first();
+  if (!row) throw notFound('Pedido');
+  const [order] = await hydrateOrders(conn, [row]);
+  const store = await conn('stores').where({ id: row.store_id }).first('name', 'slug', 'phone');
+  const { customer, ...rest } = order;
+  return { ...rest, customer: { name: customer.name }, store };
+}

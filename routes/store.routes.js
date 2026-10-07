@@ -8,6 +8,10 @@ import * as Product from '../controllers/product.controller.js';
 import * as Group from '../controllers/optionGroup.controller.js';
 import * as Order from '../controllers/order.controller.js';
 import * as Image from '../controllers/image.controller.js';
+import * as Message from '../controllers/message.controller.js';
+import * as Report from '../controllers/report.controller.js';
+import * as Events from '../controllers/events.controller.js';
+import { saveMessageValidator, statusParam } from '../validators/message.validator.js';
 import { uploadImage } from '../middlewares/upload.image.js';
 import {
   registerStoreValidator, loginValidator, updateProfileValidator, statusValidator,
@@ -26,8 +30,13 @@ const router = Router();
 router.post('/register', registerStoreValidator, validate, Store.register);
 router.post('/login', loginValidator, validate, Store.login);
 
+// fluxo SSE da loja: autenticado por token curto na query (EventSource não envia headers)
+router.get('/events', Events.storeStream);
+
 // ---- tudo abaixo exige login da loja ----
 router.use(AuthStore);
+
+router.post('/events-token', Events.storeToken);
 
 router.get('/me', Store.me);
 router.patch('/me', updateProfileValidator, validate, Store.updateProfile);
@@ -74,6 +83,12 @@ router.patch('/options/:id', updateOptionValidator, validate, Group.updateOption
 router.patch('/options/:id/image', uploadImage('image'), Image.uploadOptionImage);
 router.delete('/options/:id/image', Image.removeOptionImage);
 router.delete('/options/:id', Group.removeOption);
+
+router.get('/message-templates', Message.list);
+router.put('/message-templates/:status', saveMessageValidator, validate, Message.save);
+router.delete('/message-templates/:status', statusParam, validate, Message.reset);
+
+router.get('/reports/summary', Report.summary);
 
 router.get('/orders', Order.list);
 router.get('/orders/:id', Order.get);

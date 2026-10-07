@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import db from '../db/knex.js';
 import cloudinary from '../utils/cloudinary.js';
+import { IMAGE_MAX_MB } from '../middlewares/upload.image.js';
 import { api, auth, registerStore, seedPizzaria } from './factories/helpers.js';
 
 vi.mock('../utils/cloudinary.js', async () => ({ default: (await import('./mocks/cloudinary.js')).default }));
@@ -34,12 +35,12 @@ describe('Logo da loja', () => {
     expect(cloudinary.uploader.upload_stream).not.toHaveBeenCalled();
   });
 
-  it('400 para arquivo maior que 2 MB', async () => {
+  it('400 para arquivo maior que o limite', async () => {
     const { token } = await registerStore();
-    const big = Buffer.alloc(2 * 1024 * 1024 + 10, 1);
+    const big = Buffer.alloc(IMAGE_MAX_MB * 1024 * 1024 + 10, 1);
     const res = await api().patch('/api/stores/me/logo').set(auth(token)).attach('logo', big, { filename: 'g.png', contentType: 'image/png' });
     expect(res.status).toBe(400);
-    expect(res.body.error).toBe('Imagem muito grande. Máximo 2 MB.');
+    expect(res.body.error).toBe(`Imagem muito grande. Máximo ${IMAGE_MAX_MB} MB.`);
   });
 
   it('envia, grava logo_url e aparece no perfil e no cardápio público', async () => {

@@ -281,7 +281,7 @@ describe('Fluxo de status', () => {
     expect(onTheWay.body.message).toBe('Oba, o seu pedido já está a caminho!');
     const done = await setStatus(o.id, 'DELIVERED');
     expect(done.body.order.status).toBe('DELIVERED');
-    expect(done.body.message).toBeNull();
+    expect(done.body.message).toMatch(/entregue/i); // sem personalização: texto padrão
     expect(done.body.order.history.map((h) => h.status)).toEqual(['RECEIVED', 'PREPARING', 'OUT_FOR_DELIVERY', 'DELIVERED']);
   });
 

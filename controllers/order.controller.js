@@ -1,6 +1,8 @@
 import db from '../db/knex.js';
 import { HttpError, notFound } from '../utils/errors.js';
 import { getOrderDto, hydrateOrders } from '../services/order.service.js';
+import { messageFor } from '../services/messages.js';
+import { notifyOrderUpdated } from '../services/orderEvents.js';
 import { REASON_REQUIRED, STATUSES, checkTransition } from '../services/orderStatus.js';
 
 // GET /api/stores/orders?scope=shift|all|range&status=&from=&to=&page=&limit=
@@ -58,6 +60,7 @@ export const changeStatus = async (req, res) => {
     await trx('order_status_history').insert({ order_id: id, status, reason: reason?.trim() || null });
   });
 
-  const template = await db('store_message_templates').where({ store_id: storeId, status }).first('body');
-  res.json({ order: await getOrderDto(db, { id }), message: template?.body ?? null });
+  const updated = await getOrderDto(db, { id });
+  res.json({ order: updated, message: await messageFor(db, storeId, status) });
+  notifyOrderUpdated(storeId, updated);
 };

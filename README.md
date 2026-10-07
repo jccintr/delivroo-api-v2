@@ -79,7 +79,7 @@ scripts/        seed-demo.js
 
 ## Fica para a próxima fase
 
-Upload de imagens (Cloudinary, hoje `imageUrl`/`logoUrl` recebem uma URL) · e-mail de verificação e recuperação de senha (a tabela `auth_codes` já existe) · push da Expo (`store_devices`) e WebSocket para o painel · painel admin (`admins`) · relatórios (resumo do dia, pedidos por dia, histórico mensal) · `docs/openapi.yaml` + Swagger · limite de requisições nas rotas públicas · script de migração dos dados do Laravel.
+Upload de imagens (Cloudinary, hoje `imageUrl`/`logoUrl` recebem uma URL) · e-mail de verificação e recuperação de senha (a tabela `auth_codes` já existe) · push da Expo (`store_devices`) — o tempo real do painel e do cliente já é por SSE (seção abaixo) · painel admin (`admins`) · relatórios (resumo do dia, pedidos por dia, histórico mensal) · `docs/openapi.yaml` + Swagger · limite de requisições nas rotas públicas · script de migração dos dados do Laravel.
 
 ## Documentação interativa (Swagger)
 
@@ -134,3 +134,37 @@ slug `pizzaria-exemplo`, login `loja@exemplo.com` / `123456`, loja aberta, 9 bai
 | Sobremesas (6) | Brownie, Petit Gâteau, Taça de Sorvete … | calda opcional, até 3 bolas (repete sabor) |
 
 Os dados ficam em `db/seed-demo.js` (preços em centavos). As imagens vêm vazias: envie pelas rotas de upload (`PATCH .../image`).
+
+
+## Tempo real (SSE)
+
+Loja é avisada de pedido novo e o cliente de cada mudança de status, por **Server-Sent Events** (HTTP comum, o navegador reconecta sozinho).
+
+| Quem | Endpoint | Eventos |
+|---|---|---|
+| Loja | `POST /api/stores/events-token` → `GET /api/stores/events?token=…` | `order.created`, `order.updated` (`{ order }` completo) |
+| Cliente | `GET /api/public/orders/:publicId/events` | `order.updated` (mesmo payload de `GET /api/public/orders/:publicId`; já manda o estado atual ao conectar) |
+
+- Todo fluxo começa com `event: ready` (use-o para recarregar o que passou durante uma queda) e recebe `: ping` a cada 25 s.
+- O `EventSource` não envia `Authorization`; por isso a loja troca o JWT por um **token de 2 minutos** (segredo derivado, não vale como login). Quando vence, a conexão cai com 401 e o front pede outro e reconecta (já implementado nos dois fronts).
+- Hub em memória (`services/events.js`): funciona com **uma instância** da API. Com várias, troque o hub por Redis pub/sub mantendo a interface (`subscribe`/`publish`).
+- Limite de conexões por canal: `SSE_MAX_PER_CHANNEL` (padrão 20). Heartbeat: `SSE_HEARTBEAT_MS` (padrão 25000).
+- Falha ao publicar nunca derruba o pedido (erro só vai para o log).
+- O Swagger UI não exibe fluxos SSE; teste com `curl -N "http://localhost:3000/api/public/orders/<publicId>/events"`.
+
+### Deploy atrás de proxy (nginx etc.)
+
+O proxy não pode acumular a resposta nem derrubar conexões ociosas. A API já manda `X-Accel-Buffering: no`; mesmo assim, para as rotas de eventos:
+
+```nginx
+location ~ ^/api/(stores/events|public/orders/[^/]+/events)$ {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_read_timeout 1h;
+}
+```
+
+Cloudflare/CDN: mantenha o proxy ativo para essas rotas sem cache. **Vercel (funções serverless) não serve para SSE longo**: hospede a API em um servidor/container (Render, Railway, Fly, VPS).

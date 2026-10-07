@@ -1,3 +1,5 @@
+import { IMAGE_MAX_MB } from '../middlewares/upload.image.js';
+
 // Especificação OpenAPI 3.0 da Delivroo API v2 (servida em /docs e /openapi.json).
 // Dinheiro SEMPRE em centavos (campos *Cents). Datas em UTC (ISO 8601).
 
@@ -29,13 +31,13 @@ const imageBody = (field) => ({
   required: true,
   content: {
     'multipart/form-data': {
-      schema: { type: 'object', required: [field], properties: { [field]: { type: 'string', format: 'binary', description: 'JPEG, PNG ou WebP, até 2 MB' } } },
+      schema: { type: 'object', required: [field], properties: { [field]: { type: 'string', format: 'binary', description: 'JPEG, PNG ou WebP, até ' + IMAGE_MAX_MB + ' MB' } } },
     },
   },
 });
 const imageUploadResponses = {
   200: ok('Imagem salva no Cloudinary e URL gravada', { type: 'object', properties: { message: { type: 'string' }, imageUrl: { type: 'string', format: 'uri' } } }),
-  400: errRef('Sem arquivo, formato inválido ou maior que 2 MB'),
+  400: errRef('Sem arquivo, formato inválido ou maior que ' + IMAGE_MAX_MB + ' MB'),
   404: R[404],
   503: errRef('Cloudinary não configurado no servidor'),
   401: R[401],
@@ -100,7 +102,7 @@ export const openapi = {
       '- Dinheiro em **centavos** inteiros (`priceCents: 4500` = R$ 45,00). O cliente **nunca** envia preços: o servidor recalcula tudo no pedido.',
       '- Produto = **variações** (tamanho/porção; preço base) + **grupos de opções** (sabores, borda, adicionais…). Pizza é só um produto com variações Broto/Grande e grupos Sabores/Borda — não há flag especial.',
       '- Erros: `{ "error": "mensagem" }`; validação (400) traz também `details: [{ field, message }]`.',
-      '- Imagens: upload `multipart/form-data` (JPEG/PNG/WebP, até 2 MB) para o Cloudinary; a URL volta no próprio recurso.',
+      '- Imagens: upload `multipart/form-data` (JPEG/PNG/WebP, até ' + IMAGE_MAX_MB + ' MB) para o Cloudinary; a URL volta no próprio recurso.',
       '- Rotas da loja ficam sempre isoladas pela loja do token: um ID de outra loja responde 404.',
     ].join('\n'),
   },
@@ -111,6 +113,7 @@ export const openapi = {
     { name: 'Configurações', description: 'Zonas de entrega, formas de pagamento e horários' },
     { name: 'Catálogo', description: 'Categorias, produtos, variações e grupos de opções' },
     { name: 'Pedidos', description: 'Pedidos recebidos pela loja' },
+    { name: 'Tempo real', description: 'SSE (Server-Sent Events): loja é avisada de pedido novo e cliente de mudança de status' },
     { name: 'Sistema', description: 'Health check' },
   ],
   components: {
@@ -334,6 +337,27 @@ export const openapi = {
         },
       },
 
+      MessageTemplate: {
+        type: 'object',
+        properties: {
+          status: { type: 'string', enum: ['PREPARING', 'READY', 'OUT_FOR_DELIVERY', 'DELIVERED', 'PICKED_UP', 'REJECTED', 'CANCELED', 'RETURNED'] },
+          body: { type: 'string', description: 'Texto em uso (personalizado ou padrão)' },
+          defaultBody: { type: 'string' }, isCustom: { type: 'boolean' },
+        },
+      },
+      Summary: {
+        type: 'object',
+        properties: {
+          range: { type: 'object', properties: { from: { type: 'string', format: 'date-time' }, to: { type: 'string', format: 'date-time' } } },
+          totals: { type: 'object', properties: { orders: { type: 'integer', description: 'Pedidos vendidos (sem recusados/cancelados/devolvidos)' }, revenueCents: { type: 'integer' }, averageTicketCents: { type: 'integer' }, deliveryFeesCents: { type: 'integer' }, notSoldOrders: { type: 'integer' } } },
+          byStatus: { type: 'object', additionalProperties: { type: 'integer' }, example: { RECEIVED: 2, DELIVERED: 10, CANCELED: 1 } },
+          byDay: { type: 'array', items: { type: 'object', properties: { date: { type: 'string', example: '2026-10-06' }, orders: { type: 'integer' }, revenueCents: { type: 'integer' } } } },
+          byHour: { type: 'array', items: { type: 'object', properties: { hour: { type: 'integer' }, orders: { type: 'integer' } } } },
+          byFulfillment: { type: 'array', items: { type: 'object', properties: { fulfillment: { type: 'string' }, orders: { type: 'integer' }, revenueCents: { type: 'integer' } } } },
+          byPayment: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, orders: { type: 'integer' }, revenueCents: { type: 'integer' } } } },
+          topProducts: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, quantity: { type: 'integer' }, revenueCents: { type: 'integer' } } } },
+        },
+      },
       OrderStatus: { type: 'string', enum: ['RECEIVED', 'PREPARING', 'READY', 'OUT_FOR_DELIVERY', 'DELIVERED', 'PICKED_UP', 'REJECTED', 'CANCELED', 'RETURNED'] },
       OrderItemInput: {
         type: 'object', required: ['productId', 'variantId', 'quantity'],
@@ -427,7 +451,37 @@ export const openapi = {
       },
     },
 
+    '/api/public/orders/{publicId}/events': {
+      get: {
+        tags: ['Tempo real'], summary: 'Acompanhar pedido em tempo real (SSE)',
+        description: 'Sem login: o `publicId` aleatório é o segredo. Ao conectar já manda o estado atual em `order.updated` (quem reconecta não perde nada); depois manda `order.updated` a cada mudança de status. Payload igual ao de `GET /api/public/orders/{publicId}` (sem telefone). Resposta `text/event-stream`: mantenha a conexão aberta (`new EventSource(url)` no navegador). Eventos: `ready` (conectou), `order.updated`, …; comentários `: ping` são heartbeat. **O Swagger UI não consegue exibir o fluxo** — teste com `curl -N` ou no navegador.',
+        parameters: [{ name: 'publicId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+        responses: {
+          200: { description: 'Fluxo de eventos', content: { 'text/event-stream': { schema: { type: 'string', example: 'event: order.updated\ndata: {"publicId":"…","status":"PREPARING",…}\n\n' } } } },
+          404: R[404], 429: errRef('Muitas conexões abertas para este pedido'),
+        },
+      },
+    },
+
     // ---------------- conta ----------------
+    '/api/stores/events-token': {
+      post: {
+        tags: ['Tempo real'], summary: 'Token curto para abrir o fluxo de eventos', security: secured,
+        description: 'O `EventSource` do navegador não envia o header Authorization, então a loja troca o JWT por um token de **2 minutos** que só serve para `GET /api/stores/events`. Ele não vale como login. Quando expirar (a conexão cai com 401), peça outro e reconecte.',
+        responses: { 200: ok('Token', { type: 'object', properties: { token: { type: 'string' }, expiresIn: { type: 'integer', example: 120 } } }), ...authed },
+      },
+    },
+    '/api/stores/events': {
+      get: {
+        tags: ['Tempo real'], summary: 'Pedidos da loja em tempo real (SSE)',
+        description: 'Eventos: `order.created` (cliente fez um pedido) e `order.updated` (status mudou, inclusive por outro aparelho), ambos com `{ order }` completo (igual a `GET /orders/{id}`). Após `ready` (também ao reconectar) faça um `GET /orders` para recuperar o que passou enquanto estava offline. Resposta `text/event-stream`: mantenha a conexão aberta (`new EventSource(url)` no navegador). Eventos: `ready` (conectou), `order.updated`, …; comentários `: ping` são heartbeat. **O Swagger UI não consegue exibir o fluxo** — teste com `curl -N` ou no navegador.',
+        parameters: [{ name: 'token', in: 'query', required: true, schema: { type: 'string' }, description: 'Token de `POST /api/stores/events-token`' }],
+        responses: {
+          200: { description: 'Fluxo de eventos', content: { 'text/event-stream': { schema: { type: 'string', example: 'event: order.created\ndata: {"order":{"id":1,"orderNumber":1,"status":"RECEIVED",…}}\n\n' } } } },
+          401: R[401], 429: errRef('Muitas conexões abertas para esta loja'),
+        },
+      },
+    },
     '/api/stores/register': {
       post: {
         tags: ['Conta'], summary: 'Cadastrar loja',
@@ -510,7 +564,7 @@ export const openapi = {
     '/api/stores/products/{id}/image': {
       patch: {
         tags: ['Catálogo'], summary: 'Enviar imagem do produto (upload)',
-        description: '**multipart/form-data**, campo `image` (JPEG/PNG/WebP, máx. 2 MB). A URL fica em `imageUrl` do produto e no cardápio público.',
+        description: '**multipart/form-data**, campo `image` (JPEG/PNG/WebP, máx. ' + IMAGE_MAX_MB + ' MB). A URL fica em `imageUrl` do produto e no cardápio público.',
         security: secured, parameters: [idParam('id', 'ID do produto')], requestBody: imageBody('image'), responses: imageUploadResponses,
       },
       delete: { tags: ['Catálogo'], summary: 'Remover imagem do produto', security: secured, parameters: [idParam('id', 'ID do produto')], responses: { 204: R[204], 404: R[404], ...authed } },
@@ -574,7 +628,7 @@ export const openapi = {
     '/api/stores/options/{id}/image': {
       patch: {
         tags: ['Catálogo'], summary: 'Enviar imagem da opção (upload)',
-        description: '**multipart/form-data**, campo `image` (JPEG/PNG/WebP, máx. 2 MB).',
+        description: '**multipart/form-data**, campo `image` (JPEG/PNG/WebP, máx. ' + IMAGE_MAX_MB + ' MB).',
         security: secured, parameters: [idParam('id', 'ID da opção')], requestBody: imageBody('image'), responses: imageUploadResponses,
       },
       delete: { tags: ['Catálogo'], summary: 'Remover imagem da opção', security: secured, parameters: [idParam('id', 'ID da opção')], responses: { 204: R[204], 404: R[404], ...authed } },
@@ -589,6 +643,38 @@ export const openapi = {
     },
 
     // ---------------- pedidos ----------------
+    '/api/stores/message-templates': {
+      get: {
+        tags: ['Configurações'], summary: 'Listar mensagens de WhatsApp por status',
+        description: 'Os 8 status, com o texto em uso: o personalizado pela loja ou o padrão. Esse texto volta em `message` quando o status do pedido muda.',
+        security: secured, responses: { 200: ok('Mensagens', arrayOf('MessageTemplate')), ...authed },
+      },
+    },
+    '/api/stores/message-templates/{status}': {
+      put: {
+        tags: ['Configurações'], summary: 'Personalizar a mensagem de um status',
+        security: secured, parameters: [{ name: 'status', in: 'path', required: true, schema: { type: 'string', enum: ['PREPARING', 'READY', 'OUT_FOR_DELIVERY', 'DELIVERED', 'PICKED_UP', 'REJECTED', 'CANCELED', 'RETURNED'] } }],
+        requestBody: body({ type: 'object', required: ['body'], properties: { body: { type: 'string', minLength: 1, maxLength: 500 } } }, { body: 'Seu pedido saiu para entrega! 🛵' }),
+        responses: { 200: ok('Mensagem salva', ref('MessageTemplate')), 400: R[400], ...authed },
+      },
+      delete: {
+        tags: ['Configurações'], summary: 'Restaurar o texto padrão de um status', security: secured,
+        parameters: [{ name: 'status', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { 204: R[204], 400: R[400], ...authed },
+      },
+    },
+    '/api/stores/reports/summary': {
+      get: {
+        tags: ['Pedidos'], summary: 'Resumo de vendas do período',
+        description: 'Totais, vendas por dia e por hora, forma de pagamento, entrega x retirada e produtos mais vendidos. Conta como venda tudo que não foi recusado, cancelado ou devolvido. Dias e horas no fuso da loja (Brasília). Padrão: últimos 7 dias.',
+        security: secured,
+        parameters: [
+          { name: 'from', in: 'query', description: 'Início (ISO 8601)', schema: { type: 'string', format: 'date-time' } },
+          { name: 'to', in: 'query', description: 'Fim, exclusivo (ISO 8601)', schema: { type: 'string', format: 'date-time' } },
+        ],
+        responses: { 200: ok('Resumo', ref('Summary')), 400: R[400], ...authed },
+      },
+    },
     '/api/stores/orders': {
       get: {
         tags: ['Pedidos'], summary: 'Listar pedidos da loja',
