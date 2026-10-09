@@ -33,7 +33,8 @@ Dinheiro é sempre **inteiro em centavos** (`priceCents`, `feeCents`, `totalCent
 **Loja** (`Authorization: Bearer <token>`; o que não é da loja logada responde `404`)
 | | |
 | --- | --- |
-| `POST /api/stores/register`, `POST /api/stores/login` | conta (login devolve `{ token, store }`) |
+| `POST /api/stores/register`, `POST /api/stores/login` | conta (login devolve `{ token, store }`; o cadastro aceita `template`, ver "Templates de cardápio") |
+| `GET /api/stores/templates` | cardápios iniciais do cadastro: `empty` + `pizzaria`, `hamburgueria`, `acai` (público) |
 | `GET/PATCH /api/stores/me`, `PATCH /api/stores/me/status` `{isOpen}` | perfil; abrir/fechar a loja (abrir inicia o turno) |
 | `GET/PUT /api/stores/me/business-hours` | horários (vários intervalos por dia; PUT substitui tudo) |
 | `/api/stores/delivery-zones`, `/api/stores/payment-methods`, `/api/stores/categories` | CRUD (`GET`, `POST`, `PATCH /:id`, `DELETE /:id`) |
@@ -72,10 +73,11 @@ controllers/    store, config (bairros/pagamentos), category, product, optionGro
 validators/     store, catalog, order, admin
 middlewares/    auth.store, auth.admin, validate, error
 services/       pricing (cálculo de preço), order.service (pedido em transação), menu.service,
-                catalog.service, orderStatus (fluxo de status),
+                catalog.service, orderStatus (fluxo de status), template.service (cardápio inicial),
                 storeAccess (o que a loja pode fazer), adminAuth, adminAccounts, audit
+templates/      cardápios prontos do cadastro (pizzaria, hamburgueria, açaí) + helpers
 utils/          crud (CRUD genérico por loja), dto, errors, slug, loginThrottle
-tests/          vitest + supertest contra MySQL real (146 testes)
+tests/          vitest + supertest contra MySQL real
 scripts/        seed-demo.js, create-admin.js
 ```
 
@@ -162,6 +164,21 @@ slug `pizzaria-exemplo`, login `loja@exemplo.com` / `123456`, loja aberta, 9 bai
 | Sobremesas (6) | Brownie, Petit Gâteau, Taça de Sorvete … | calda opcional, até 3 bolas (repete sabor) |
 
 Os dados ficam em `db/seed-demo.js` (preços em centavos). As imagens vêm vazias: envie pelas rotas de upload (`PATCH .../image`).
+
+## Templates de cardápio (cadastro)
+
+Toda loja nova nasce com as formas de pagamento padrão (Pix, dinheiro, cartão de débito e de crédito) e **fechada**. No cadastro, `POST /api/stores/register` aceita ainda `template`:
+
+| `template` | O que cria |
+|---|---|
+| ausente ou `empty` | loja vazia |
+| `pizzaria` | Pizzas (Broto/Grande, até 2 sabores, borda, adicionais), Porções, Bebidas, Sobremesas |
+| `hamburgueria` | Hambúrgueres (ponto da carne, adicionais), Combos, Porções, Bebidas |
+| `acai` | Açaí no copo (300/500/700 ml, complementos, coberturas, adicionais), Tigelas, Combo, Bebidas |
+
+Loja, pagamentos e template são gravados numa única transação. `GET /api/stores/templates` lista as opções (com o resumo de cada uma) para montar a tela de cadastro; a resposta do cadastro devolve `template` (o aplicado, ou `null`).
+
+Os **preços dos templates são exemplos** (o painel avisa o dono para revisá-los) e as imagens vêm vazias. Para criar um novo template: copie um arquivo de `templates/`, ajuste os dados (formato descrito em `templates/helpers.js`) e registre-o em `templates/index.js`. `tests/templates.test.js` valida a consistência de todos (grupos usados, limites, preço por tamanho cobrindo todas as variações) e cria uma loja de cada um pela API.
 
 
 ## Tempo real (SSE)
