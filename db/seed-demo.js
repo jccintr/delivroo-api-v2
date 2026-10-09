@@ -6,6 +6,7 @@
 // As imagens ficam vazias de propósito: envie pelas rotas de upload (PATCH .../image) ou pelo painel.
 import bcryptjs from 'bcryptjs';
 import { applyCatalog } from '../services/template.service.js';
+import { createTrial } from '../services/billing.js';
 
 export const DEMO = { slug: 'pizzaria-modelo', email: 'pizzaria@gmail.com', password: '123456' };
 
@@ -275,6 +276,7 @@ export async function seedDemo(db) {
       is_open: true, opened_at: new Date(),
     });
 
+    await createTrial(trx, storeId); // loja de exemplo também começa em teste de 14 dias
     await trx('delivery_zones').insert(ZONES.map(([district, fee]) => ({ store_id: storeId, district, fee_cents: fee })));
     await trx('payment_methods').insert(PAYMENTS.map(([name, type], i) => ({ store_id: storeId, name, type, position: i + 1 })));
     await trx('business_hours').insert(HOURS.map(([weekday, o, c]) => ({ store_id: storeId, weekday, opens_at: `${o}:00`, closes_at: `${c}:00` })));

@@ -6,7 +6,8 @@ const TABLES = [
   'product_option_groups', 'option_variant_prices', 'options', 'option_groups',
   'product_variants', 'products', 'categories',
   'store_message_templates', 'payment_methods', 'delivery_zones', 'business_hours',
-  'auth_codes', 'store_devices', 'admin_audit_log', 'stores', 'admins', 'cities',
+  'auth_codes', 'store_devices', 'billing_events', 'invoices', 'subscriptions', 'plans',
+  'admin_audit_log', 'stores', 'admins', 'cities',
 ];
 
 // Trava de segurança: os testes APAGAM todas as tabelas. Só rodam em banco cujo nome termina com "_test".

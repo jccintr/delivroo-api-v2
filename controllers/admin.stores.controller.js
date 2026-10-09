@@ -2,15 +2,27 @@ import db from '../db/knex.js';
 import { notFound } from '../utils/errors.js';
 import { adminStoreDto } from '../utils/dto.js';
 import { logAdminAction, parseDetails } from '../services/audit.js';
+import { getBillingStatus } from '../services/storeAccess.js';
 
 // Colunas extras de cada loja: quantos pedidos já recebeu e quando foi o último (para achar loja parada).
 const withStats = (q) => q
   .leftJoin('cities as c', 'c.id', 's.city_id')
+  .leftJoin('subscriptions as sub', 'sub.store_id', 's.id')
+  .leftJoin('plans as pl', 'pl.id', 'sub.plan_id')
   .select(
     's.*', 'c.name as city_name', 'c.state as city_state',
+    'sub.trial_ends_on', 'sub.paid_until', 'sub.courtesy_until', 'sub.courtesy_indefinite', 'sub.id as subscription_id',
+    'pl.name as plan_name',
     db.raw('(SELECT COUNT(*) FROM orders o WHERE o.store_id = s.id) AS orders_count'),
     db.raw('(SELECT MAX(o.created_at) FROM orders o WHERE o.store_id = s.id) AS last_order_at'),
   );
+
+// Situação de cobrança calculada na leitura (a mesma regra que decide o acesso).
+const withBilling = (row) => {
+  if (!row.subscription_id) return row;
+  const b = getBillingStatus(row);
+  return { ...row, billing_status: b.status, billing_covered_through: b.coveredThrough };
+};
 
 const escapeLike = (text) => text.replace(/[\\%_]/g, '\\$&');
 const pageParams = (req, defaultLimit = 20) => ({
@@ -38,7 +50,7 @@ export const list = async (req, res) => {
     .orderBy([{ column: 's.created_at', order: 'desc' }, { column: 's.id', order: 'desc' }])
     .limit(limit).offset((page - 1) * limit);
 
-  res.json({ page, limit, total: Number(total), stores: rows.map(adminStoreDto) });
+  res.json({ page, limit, total: Number(total), stores: rows.map((r) => adminStoreDto(withBilling(r))) });
 };
 
 // GET /api/admin/stores/:id
@@ -46,7 +58,7 @@ export const get = async (req, res) => {
   const row = await withStats(db('stores as s').where('s.id', Number(req.params.id))).first();
   if (!row) throw notFound('Loja');
   const { products } = await db('products').where({ store_id: row.id }).count({ products: 'id' }).first();
-  res.json({ ...adminStoreDto(row), productsCount: Number(products) });
+  res.json({ ...adminStoreDto(withBilling(row)), productsCount: Number(products) });
 };
 
 // PATCH /api/admin/stores/:id/active  { active, reason? }
@@ -76,7 +88,7 @@ export const setActive = async (req, res) => {
   });
 
   const row = await withStats(db('stores as s').where('s.id', id)).first();
-  res.json(adminStoreDto(row));
+  res.json(adminStoreDto(withBilling(row)));
 };
 
 // GET /api/admin/audit-log?storeId=&page=&limit=

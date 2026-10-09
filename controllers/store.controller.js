@@ -6,10 +6,15 @@ import { storeDto, hourDto } from '../utils/dto.js';
 import { uniqueStoreSlug } from '../utils/slug.js';
 import { listTemplateChoices } from '../templates/index.js';
 import { applyStoreTemplate, createStoreDefaults } from '../services/template.service.js';
-import { isStoreBlocked, STORE_BLOCKED } from '../services/storeAccess.js';
+import { isStoreBlocked, getStoreAccess, accessDto, STORE_BLOCKED } from '../services/storeAccess.js';
+import { createTrial } from '../services/billing.js';
 
 const signToken = (storeId) =>
   jsonwebtoken.sign({ storeId }, process.env.JWT_SECRET_STORE, { expiresIn: process.env.JWT_EXPIRES_IN || '30d' });
+
+// Situação de acesso (cobrança) que o painel usa para avisos e para restringir telas.
+const accessFor = async (store) =>
+  accessDto(getStoreAccess(store, await db('subscriptions').where({ store_id: store.id }).first()));
 
 // GET /api/stores/templates — opções de cardápio inicial para o cadastro ("Loja vazia" + templates)
 export const listTemplates = (req, res) => {
@@ -34,12 +39,13 @@ export const register = async (req, res) => {
   const id = await db.transaction(async (trx) => {
     const [storeId] = await trx('stores').insert({ slug, name, email, phone, city_id: cityId, password_hash: passwordHash });
     await createStoreDefaults(trx, storeId);
+    await createTrial(trx, storeId); // 14 dias de teste; o plano é escolhido depois, na tela Assinatura
     if (template) await applyStoreTemplate(trx, storeId, template);
     return storeId;
   });
 
   const store = await db('stores').where({ id }).first();
-  res.status(201).json({ token: signToken(id), store: storeDto(store), template });
+  res.status(201).json({ token: signToken(id), store: storeDto(store), access: await accessFor(store), template });
 };
 
 // POST /api/stores/login
@@ -54,14 +60,14 @@ export const login = async (req, res) => {
   // `code` permite ao painel mostrar a mensagem certa (hoje só o bloqueio do admin; no futuro, assinatura)
   if (isStoreBlocked(store)) throw new HttpError(403, 'Conta desativada.', { code: STORE_BLOCKED });
 
-  res.json({ token: signToken(store.id), store: storeDto(store) });
+  res.json({ token: signToken(store.id), store: storeDto(store), access: await accessFor(store) });
 };
 
 // GET /api/stores/me
 export const me = async (req, res) => {
   const store = await db('stores').where({ id: req.user.id }).first();
   if (!store) throw notFound('Loja');
-  res.json(storeDto(store));
+  res.json({ ...storeDto(store), access: await accessFor(store) });
 };
 
 const PROFILE_COLUMNS = {

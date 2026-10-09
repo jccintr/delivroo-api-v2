@@ -83,11 +83,11 @@ scripts/        seed-demo.js, create-admin.js
 
 ## Fica para a próxima fase
 
-Upload de imagens (Cloudinary, hoje `imageUrl`/`logoUrl` recebem uma URL) · e-mail de verificação e recuperação de senha (a tabela `auth_codes` já existe) · push da Expo (`store_devices`) — o tempo real do painel e do cliente já é por SSE (seção abaixo) · cobrança: planos, assinaturas e faturas (o **backoffice** já existe — veja a seção abaixo) · relatórios (resumo do dia, pedidos por dia, histórico mensal) · `docs/openapi.yaml` + Swagger · limite de requisições nas rotas públicas · ~~script de migração dos dados do Laravel~~ (descartado: lojas do Delivroo antigo começam do zero).
+Upload de imagens (Cloudinary, hoje `imageUrl`/`logoUrl` recebem uma URL) · e-mail de verificação e recuperação de senha (a tabela `auth_codes` já existe) · push da Expo (`store_devices`) — o tempo real do painel e do cliente já é por SSE (seção abaixo) · cobrança automática por gateway (planos, assinaturas e faturas com Pix manual já existem — seção **Assinaturas**) · relatórios (resumo do dia, pedidos por dia, histórico mensal) · `docs/openapi.yaml` + Swagger · limite de requisições nas rotas públicas · ~~script de migração dos dados do Laravel~~ (descartado: lojas do Delivroo antigo começam do zero).
 
 ## Backoffice (admin geral)
 
-Rotas em `/api/admin/*`, usadas pelo app `delivroo-v2-front-backoffice`. É **independente** do painel da loja: segredo JWT próprio (`JWT_SECRET_ADMIN`), token de 12 h (`ADMIN_JWT_EXPIRES_IN`) e nenhuma rota mexe no cardápio.
+Rotas em `/api/admin/*`, usadas pelo app `delivroo-v2-backoffice`. É **independente** do painel da loja: segredo JWT próprio (`JWT_SECRET_ADMIN`), token de 12 h (`ADMIN_JWT_EXPIRES_IN`) e nenhuma rota mexe no cardápio.
 
 | Rota | O que faz |
 |---|---|
@@ -97,6 +97,7 @@ Rotas em `/api/admin/*`, usadas pelo app `delivroo-v2-front-backoffice`. É **in
 | `GET /api/admin/stores/:id` | detalhe (cadastro, situação, `productsCount`) |
 | `PATCH /api/admin/stores/:id/active` `{ active, reason? }` | bloqueia / libera a loja |
 | `GET /api/admin/audit-log?storeId=` | quem fez o quê, e quando |
+| planos, assinatura e faturas | veja a seção **Assinaturas** |
 
 **Criar o primeiro admin** (não existe endpoint público para isso, de propósito):
 
@@ -107,9 +108,34 @@ npm run admin:create -- --email voce@exemplo.com --reset             # esqueci a
 
 Configure `JWT_SECRET_ADMIN` no `.env` (diferente do `JWT_SECRET_STORE`; o servidor avisa se faltar ou se for igual).
 
-**Bloqueio de loja** (`stores.active`): é o bloqueio *manual* do admin. A loja é fechada, não consegue entrar (login 403 com `code: "STORE_BLOCKED"`), o token dela deixa de valer (401 com o mesmo `code`) e o cardápio público some. O motivo (`deactivationReason`) é nota interna. Toda decisão sobre "o que a loja pode fazer" passa por `services/storeAccess.js` — é lá que o estado de assinatura vai entrar quando existir cobrança, sem mexer nos chamadores.
+**Bloqueio de loja** (`stores.active`): é o bloqueio *manual* do admin. A loja é fechada, não consegue entrar (login 403 com `code: "STORE_BLOCKED"`), o token dela deixa de valer (401 com o mesmo `code`) e o cardápio público some. O motivo (`deactivationReason`) é nota interna. Toda decisão sobre "o que a loja pode fazer" passa por `services/storeAccess.js` — é lá que também entra o estado da assinatura (seção abaixo), sem os chamadores saberem de cobrança.
 
 Limitações conhecidas: o limite de tentativas de login é em memória (reiniciar zera; com várias instâncias cada uma conta a sua); trocar a senha não invalida tokens já emitidos (por isso expiram em 12 h).
+
+## Assinaturas (planos, teste, faturas Pix)
+
+**Regras**
+
+- Toda loja nova entra em **teste de 14 dias**, sem escolher plano (o cadastro não mudou). As lojas que já existiam na hora da migration também ganham 14 dias a partir dela.
+- O plano é escolhido depois, na tela *Assinatura* do painel (`PUT /api/stores/subscription/plan`). Isso gera a **fatura** na hora, vencendo no fim do período coberto.
+- Se não pagar: **7 dias de carência** (tudo funciona, painel mostra aviso) → **suspensa**: cardápio público e pedidos novos respondem `403 MENU_UNAVAILABLE`, o painel só libera Assinatura, pedidos em andamento e exportação (o resto responde `402 SUBSCRIPTION_SUSPENDED`) → depois de mais 30 dias, `CANCELED` (mesmo acesso da suspensa; só volta pagando).
+- O estado é **calculado das datas na hora da leitura** (`getStoreAccess`), então nada depende de cron. As datas de cobrança são dias (fuso de Brasília): `trial_ends_on`, `paid_until` (último dia coberto), `courtesy_until`.
+- Pagar em dia estende a partir do vencimento; pagar **atrasado** conta o mês a partir de **hoje** (quem estava suspenso não perde o que acabou de pagar). Pagar adiantado durante o teste não encurta o teste.
+- A fatura do próximo ciclo é gerada quando faltam 7 dias ou menos (ao consultar a assinatura). Nunca há duas faturas abertas para a mesma assinatura (índice único). Trocar de plano cancela a aberta e emite outra; mudar o preço de um plano só afeta as próximas faturas.
+- `stores.active` continua sendo o bloqueio **manual** do admin e vale sobre a cobrança.
+
+**Pagamento manual (Pix)**: a chave do Delivroo vem do ambiente (`BILLING_PIX_KEY`, `BILLING_PIX_KEY_TYPE`, `BILLING_PIX_BENEFICIARY`, `BILLING_PIX_INSTRUCTIONS`) e é mostrada na tela Assinatura. A loja paga e clica **Já paguei** (só sinaliza); o admin confere o Pix e marca a fatura como paga no backoffice (`POST /api/admin/stores/:id/invoices/:invoiceId/pay`). Para trocar por um gateway depois, basta quem receber o webhook chamar `markInvoicePaid()` (`services/billing.js`); as tabelas `invoices` (`provider`, `provider_ref`) e `billing_events` já estão prontas.
+
+**Nenhum plano é criado sozinho**: crie o primeiro em *Planos* no backoffice (ou `POST /api/admin/plans`). Enquanto não existir, as lojas ficam em teste e a tela Assinatura avisa que ainda não há plano.
+
+| Quem | Rota |
+|---|---|
+| Loja | `GET /api/stores/subscription` · `PUT /api/stores/subscription/plan` · `POST /api/stores/subscription/invoices/:id/report-payment` · `GET /api/stores/me/export` |
+| Admin | `GET/POST /api/admin/plans` · `PATCH/DELETE /api/admin/plans/:id` (excluir só plano nunca usado; senão desative) |
+| Admin | `GET /api/admin/stores/:id/subscription` · `PUT …/subscription/plan` · `POST …/subscription/extend-trial` · `PUT …/subscription/courtesy` |
+| Admin | `POST /api/admin/stores/:id/invoices/:invoiceId/pay` · `…/void` · `GET /api/admin/invoices?status=open\|overdue\|reported\|paid` |
+
+`GET /api/stores/me`, login e cadastro devolvem `access` (estado, `panel`, `billing.status`, `daysLeft`, `dueSoon`...) para o painel decidir avisos e telas.
 
 ## Documentação interativa (Swagger)
 

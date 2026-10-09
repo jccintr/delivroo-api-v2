@@ -11,6 +11,7 @@ import * as Image from '../controllers/image.controller.js';
 import * as Message from '../controllers/message.controller.js';
 import * as Report from '../controllers/report.controller.js';
 import * as Events from '../controllers/events.controller.js';
+import * as Subscription from '../controllers/subscription.controller.js';
 import { saveMessageValidator, statusParam } from '../validators/message.validator.js';
 import { uploadImage } from '../middlewares/upload.image.js';
 import {
@@ -23,6 +24,7 @@ import {
   createOptionValidator, updateOptionValidator,
 } from '../validators/catalog.validator.js';
 import { changeStatusValidator } from '../validators/order.validator.js';
+import { chooseOwnPlanValidator, reportPaymentValidator } from '../validators/billing.validator.js';
 
 const router = Router();
 
@@ -44,8 +46,14 @@ router.patch('/me', updateProfileValidator, validate, Store.updateProfile);
 router.patch('/me/status', statusValidator, validate, Store.setOpen);
 router.patch('/me/logo', uploadImage('logo'), Image.uploadLogo);
 router.delete('/me/logo', Image.removeLogo);
+router.get('/me/export', Subscription.exportData);
 router.get('/me/business-hours', Store.listBusinessHours);
 router.put('/me/business-hours', businessHoursValidator, validate, Store.replaceBusinessHours);
+
+// assinatura da loja (continua acessível com a conta suspensa)
+router.get('/subscription', Subscription.getSubscription);
+router.put('/subscription/plan', chooseOwnPlanValidator, validate, Subscription.choosePlan);
+router.post('/subscription/invoices/:invoiceId/report-payment', reportPaymentValidator, validate, Subscription.report);
 
 router.get('/delivery-zones', Config.zones.list);
 router.post('/delivery-zones', deliveryZoneValidator(false), validate, Config.zones.create);

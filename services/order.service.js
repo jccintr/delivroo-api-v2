@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import db from '../db/knex.js';
 import { HttpError, notFound } from '../utils/errors.js';
 import { PricingError, priceItem, priceOrder } from './pricing.js';
+import { assertMenuAvailable } from './menuAvailability.js';
 
 // ---- carregar o catálogo necessário para precificar ------------------------------------------
 
@@ -53,8 +54,9 @@ async function withDeadlockRetry(fn, attempts = 3) {
 }
 
 export async function createOrder(slug, input) {
-  const store = await db('stores').where({ slug, active: true }).first();
+  const store = await db('stores').where({ slug }).first();
   if (!store) throw notFound('Loja');
+  await assertMenuAvailable(store); // bloqueada pelo admin ou assinatura suspensa: não recebe pedido novo
   if (!store.is_open) throw new HttpError(409, 'A loja está fechada no momento.', { code: 'STORE_CLOSED' });
 
   const publicId = crypto.randomUUID();

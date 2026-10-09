@@ -225,7 +225,9 @@ describe('PATCH /api/admin/stores/:id/active', () => {
     expect(old.status).toBe(401);
     expect(old.body.code).toBe('STORE_BLOCKED');
 
-    expect((await api().get(`/api/public/stores/${store.slug}/menu`)).status).toBe(404);
+    const blockedMenu = await api().get(`/api/public/stores/${store.slug}/menu`);
+    expect(blockedMenu.status).toBe(403);
+    expect(blockedMenu.body.code).toBe('MENU_UNAVAILABLE');
 
     const [entry] = await db('admin_audit_log').where({ store_id: store.id });
     expect(entry).toMatchObject({ admin_id: admin.id, action: 'STORE_DEACTIVATED' });

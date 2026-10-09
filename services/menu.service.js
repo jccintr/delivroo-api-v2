@@ -1,5 +1,6 @@
 import db from '../db/knex.js';
 import { notFound } from '../utils/errors.js';
+import { assertMenuAvailable } from './menuAvailability.js';
 
 // Cardápio público da loja: tudo que o cliente precisa numa chamada.
 // Preço das opções já vem resolvido POR VARIAÇÃO (prices: { [variantId]: centavos }).
@@ -7,9 +8,9 @@ export async function buildMenu(slug) {
   const store = await db('stores as s')
     .leftJoin('cities as c', 'c.id', 's.city_id')
     .where('s.slug', slug)
-    .where('s.active', true)
     .first('s.*', 'c.name as city_name', 'c.state as city_state');
   if (!store) throw notFound('Loja');
+  await assertMenuAvailable(store);
 
   const storeId = store.id;
   const [hours, zones, payments, categories, products] = await Promise.all([

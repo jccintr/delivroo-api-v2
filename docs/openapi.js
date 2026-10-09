@@ -22,7 +22,8 @@ const R = {
   422: errRef('Regra de negócio violada'),
   204: { description: 'Removido com sucesso (sem corpo)' },
 };
-const authed = { 401: R[401] };
+R[402] = errRef('Assinatura suspensa por falta de pagamento (`code: SUBSCRIPTION_SUSPENDED`): o painel só libera Assinatura, pedidos em andamento e exportação');
+const authed = { 401: R[401], 402: R[402] };
 
 const secured = [{ bearerAuth: [] }];
 const adminSecured = [{ adminAuth: [] }];
@@ -114,7 +115,8 @@ export const openapi = {
     { name: 'Configurações', description: 'Zonas de entrega, formas de pagamento e horários' },
     { name: 'Catálogo', description: 'Categorias, produtos, variações e grupos de opções' },
     { name: 'Pedidos', description: 'Pedidos recebidos pela loja' },
-    { name: 'Backoffice', description: 'Admin geral da plataforma (login próprio, segredo JWT próprio): lojas, bloqueio e auditoria. Não mexe no cardápio.' },
+    { name: 'Assinatura', description: 'Plano, faturas e situação de cobrança da loja (Pix manual no começo). Continua acessível com a conta suspensa.' },
+    { name: 'Backoffice', description: 'Admin geral da plataforma (login próprio, segredo JWT próprio): lojas, bloqueio, planos, assinaturas, faturas e auditoria. Não mexe no cardápio.' },
     { name: 'Tempo real', description: 'SSE (Server-Sent Events): loja é avisada de pedido novo e cliente de mudança de status' },
     { name: 'Sistema', description: 'Health check' },
   ],
@@ -453,6 +455,7 @@ export const openapi = {
           createdAt: { type: 'string', format: 'date-time' },
           ordersCount: { type: 'integer' },
           lastOrderAt: { type: 'string', format: 'date-time', nullable: true },
+          billing: { type: 'object', properties: { status: { type: 'string', nullable: true, enum: ['TRIALING', 'ACTIVE', 'COURTESY', 'PAST_DUE', 'SUSPENDED', 'CANCELED'] }, coveredThrough: { type: 'string', nullable: true }, planName: { type: 'string', nullable: true } } },
         },
       },
       AdminStoreDetail: {
@@ -466,7 +469,7 @@ export const openapi = {
         type: 'object',
         properties: {
           id: { type: 'integer' },
-          action: { type: 'string', example: 'STORE_DEACTIVATED', description: 'STORE_DEACTIVATED, STORE_ACTIVATED, ADMIN_PASSWORD_CHANGED, ADMIN_PASSWORD_RESET_CLI' },
+          action: { type: 'string', example: 'STORE_DEACTIVATED', description: 'STORE_DEACTIVATED, STORE_ACTIVATED, ADMIN_PASSWORD_CHANGED, ADMIN_PASSWORD_RESET_CLI, PLAN_CREATED, PLAN_UPDATED, PLAN_DELETED, SUBSCRIPTION_PLAN_SET, TRIAL_EXTENDED, COURTESY_GRANTED, COURTESY_REVOKED, INVOICE_PAID, INVOICE_VOIDED' },
           admin: { type: 'object', properties: { id: { type: 'integer' }, name: { type: 'string' }, email: { type: 'string' } } },
           store: { type: 'object', nullable: true, properties: { id: { type: 'integer' }, name: { type: 'string' } } },
           details: { type: 'object', nullable: true, additionalProperties: true },
@@ -476,6 +479,100 @@ export const openapi = {
       AdminAuditPage: {
         type: 'object',
         properties: { page: { type: 'integer' }, limit: { type: 'integer' }, total: { type: 'integer' }, entries: arrayOf('AdminAuditEntry') },
+      },
+
+      Day: { type: 'string', format: 'date', example: '2026-10-23', description: 'Dia (AAAA-MM-DD), fuso de Brasília' },
+      StoreAccess: {
+        type: 'object',
+        description: 'O que a loja pode fazer agora. Calculado das datas na hora da leitura (não depende de cron).',
+        properties: {
+          state: { type: 'string', enum: ['FULL', 'SUSPENDED', 'BLOCKED'], description: 'SUSPENDED = inadimplência (painel restrito, cardápio fora do ar)' },
+          panel: { type: 'string', enum: ['FULL', 'BILLING_ONLY', 'NONE'] },
+          menuAvailable: { type: 'boolean' },
+          billing: {
+            type: 'object',
+            properties: {
+              status: { type: 'string', enum: ['TRIALING', 'ACTIVE', 'COURTESY', 'PAST_DUE', 'SUSPENDED', 'CANCELED'], description: 'PAST_DUE = vencida, dentro dos 7 dias de carência (tudo funciona)' },
+              coveredThrough: ref('Day'), graceEndsOn: ref('Day'),
+              daysLeft: { type: 'integer', nullable: true, description: 'Dias até acabar o período coberto' },
+              daysOverdue: { type: 'integer' }, dueSoon: { type: 'boolean', description: 'Faltam 5 dias ou menos (ou já venceu): mostrar aviso' },
+              indefinite: { type: 'boolean', description: 'Cortesia sem prazo' },
+            },
+          },
+        },
+      },
+      Plan: {
+        type: 'object',
+        properties: {
+          id: { type: 'integer' }, name: { type: 'string' }, description: { type: 'string', nullable: true },
+          priceCents: { type: 'integer', description: 'Preço mensal' }, position: { type: 'integer' }, active: { type: 'boolean' },
+          subscribersCount: { type: 'integer', description: 'Só na listagem do admin' },
+          createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
+        },
+      },
+      PlanInput: {
+        type: 'object', required: ['name', 'priceCents'],
+        properties: {
+          name: { type: 'string', maxLength: 80 }, description: { type: 'string', nullable: true, maxLength: 255 },
+          priceCents: { type: 'integer', minimum: 0 }, position: { type: 'integer', default: 0 }, active: { type: 'boolean', default: true },
+        },
+      },
+      Invoice: {
+        type: 'object',
+        properties: {
+          id: { type: 'integer' }, storeId: { type: 'integer' }, planId: { type: 'integer' },
+          amountCents: { type: 'integer', description: 'Cópia do preço do plano no momento da fatura' },
+          periodStart: ref('Day'), periodEnd: ref('Day'), dueOn: ref('Day'),
+          status: { type: 'string', enum: ['OPEN', 'PAID', 'VOID'] },
+          overdue: { type: 'boolean', description: 'Em aberto e vencida' },
+          provider: { type: 'string', example: 'manual' },
+          reportedPaidAt: { type: 'string', format: 'date-time', nullable: true, description: 'A loja clicou em "Já paguei" (falta o admin conferir)' },
+          reportedNote: { type: 'string', nullable: true },
+          paidAt: { type: 'string', format: 'date-time', nullable: true }, paymentNote: { type: 'string', nullable: true },
+          createdAt: { type: 'string', format: 'date-time' },
+        },
+      },
+      SubscriptionInfo: {
+        type: 'object',
+        properties: {
+          planId: { type: 'integer', nullable: true, description: 'null = ainda não escolheu (período de teste)' },
+          plan: { ...ref('Plan'), nullable: true },
+          trialEndsOn: ref('Day'), paidUntil: { ...ref('Day'), nullable: true },
+          courtesyUntil: { ...ref('Day'), nullable: true }, courtesyIndefinite: { type: 'boolean' },
+        },
+      },
+      BillingEvent: {
+        type: 'object',
+        properties: {
+          id: { type: 'integer' }, type: { type: 'string', example: 'INVOICE_PAID' }, actor: { type: 'string', enum: ['system', 'store', 'admin'] },
+          invoiceId: { type: 'integer', nullable: true }, details: { type: 'object', nullable: true, additionalProperties: true },
+          createdAt: { type: 'string', format: 'date-time' },
+        },
+      },
+      PixInfo: {
+        type: 'object', nullable: true, description: 'Chave Pix do Delivroo (variáveis `BILLING_PIX_*`). null = não configurada no servidor.',
+        properties: { key: { type: 'string' }, keyType: { type: 'string', nullable: true }, beneficiary: { type: 'string', nullable: true }, instructions: { type: 'string', nullable: true } },
+      },
+      StoreSubscription: {
+        type: 'object',
+        properties: {
+          access: ref('StoreAccess'), subscription: ref('SubscriptionInfo'),
+          invoices: arrayOf('Invoice'), plans: { ...arrayOf('Plan'), description: 'Planos ativos que a loja pode escolher' }, pix: ref('PixInfo'),
+        },
+      },
+      AdminSubscription: {
+        type: 'object',
+        properties: { access: ref('StoreAccess'), subscription: ref('SubscriptionInfo'), invoices: arrayOf('Invoice'), events: arrayOf('BillingEvent') },
+      },
+      AdminInvoice: {
+        allOf: [ref('Invoice'), { type: 'object', properties: {
+          store: { type: 'object', properties: { id: { type: 'integer' }, name: { type: 'string' }, slug: { type: 'string' } } },
+          planName: { type: 'string' },
+        } }],
+      },
+      AdminInvoicePage: {
+        type: 'object',
+        properties: { page: { type: 'integer' }, limit: { type: 'integer' }, total: { type: 'integer' }, invoices: arrayOf('AdminInvoice') },
       },
       ChangeStatusInput: {
         type: 'object', required: ['status'],
@@ -496,11 +593,12 @@ export const openapi = {
         tags: ['Público'], summary: 'Cardápio completo da loja',
         description: 'Tudo que o cliente precisa em uma chamada: loja, horários, zonas, pagamentos e categorias com produtos, variações e grupos de opções (preços já resolvidos por variação).',
         parameters: [{ name: 'slug', in: 'path', required: true, schema: { type: 'string' }, example: 'pizzaria-exemplo' }],
-        responses: { 200: ok('Cardápio', ref('Menu')), 404: R[404] },
+        responses: { 200: ok('Cardápio', ref('Menu')), 403: errRef('Cardápio indisponível (`code: MENU_UNAVAILABLE`): loja bloqueada pelo admin ou assinatura suspensa. O motivo não é revelado ao cliente.'), 404: R[404] },
       },
     },
     '/api/public/stores/{slug}/orders': {
       post: {
+        // 403 MENU_UNAVAILABLE quando a loja está bloqueada/suspensa
         tags: ['Público'], summary: 'Fazer um pedido',
         description: 'O servidor recalcula todos os preços e valida as regras dos grupos (mínimo/máximo de escolhas, variação do produto, loja aberta, zona de entrega). O exemplo abaixo (Pizza Tradicional grande, meio Calabresa meio Portuguesa, borda de cheddar, paga em dinheiro) usa IDs da loja de exemplo recém-criada por `npm run migrate:fresh:seed` — confira os IDs reais no `GET …/menu`.',
         parameters: [{ name: 'slug', in: 'path', required: true, schema: { type: 'string' }, example: 'pizzaria-exemplo' }],
@@ -572,7 +670,7 @@ export const openapi = {
       },
     },
     '/api/stores/me': {
-      get: { tags: ['Conta'], summary: 'Perfil da loja logada', security: secured, responses: { 200: ok('Loja', ref('Store')), ...authed } },
+      get: { tags: ['Conta'], summary: 'Perfil da loja logada', description: 'Inclui `access` (situação de cobrança) para o painel mostrar avisos.', security: secured, responses: { 200: ok('Loja + access', { allOf: [ref('Store'), { type: 'object', properties: { access: ref('StoreAccess') } }] }), ...authed } },
       patch: {
         tags: ['Conta'], summary: 'Atualizar perfil (parcial)', security: secured,
         requestBody: body(ref('ProfileInput'), { phone: '35988887777', waitMinMinutes: 30, waitMaxMinutes: 50, bgColor: '#B91C1C' }),
@@ -841,6 +939,126 @@ export const openapi = {
         security: adminSecured, parameters: [idParam('id', 'ID da loja')],
         requestBody: body({ type: 'object', required: ['active'], properties: { active: { type: 'boolean' }, reason: { type: 'string', nullable: true, maxLength: 255 } } }, { active: false, reason: 'Pedido do proprietário' }),
         responses: { 200: ok('Loja atualizada', ref('AdminStore')), 400: R[400], 404: R[404], ...authed },
+      },
+    },
+
+    // ---------------- assinatura (loja) ----------------
+    '/api/stores/subscription': {
+      get: {
+        tags: ['Assinatura'], summary: 'Situação da assinatura',
+        description: 'Plano atual, fatura em aberto, histórico (24 últimas), planos disponíveis e chave Pix para pagar. A fatura do próximo ciclo é gerada aqui, quando faltam 7 dias ou menos. Funciona com a conta suspensa.',
+        security: secured, responses: { 200: ok('Assinatura', ref('StoreSubscription')), ...authed },
+      },
+    },
+    '/api/stores/subscription/plan': {
+      put: {
+        tags: ['Assinatura'], summary: 'Escolher ou trocar de plano',
+        description: 'Gera a fatura na hora (vencimento = fim do período coberto). Trocar de plano cancela a fatura aberta do plano anterior. Plano desativado só vale para quem já está nele.',
+        security: secured, requestBody: body({ type: 'object', required: ['planId'], properties: { planId: { type: 'integer' } } }, { planId: 1 }),
+        responses: { 200: ok('Assinatura', ref('StoreSubscription')), 400: R[400], 422: R[422], ...authed },
+      },
+    },
+    '/api/stores/subscription/invoices/{invoiceId}/report-payment': {
+      post: {
+        tags: ['Assinatura'], summary: 'Avisar "Já paguei"',
+        description: 'Não libera nada: só sinaliza ao admin que há um Pix para conferir. Repetir não muda nada.',
+        security: secured, parameters: [idParam('invoiceId', 'ID da fatura')],
+        requestBody: body({ type: 'object', properties: { note: { type: 'string', maxLength: 255 } } }, { note: 'Pix feito às 14h' }, false),
+        responses: { 200: ok('Assinatura', ref('StoreSubscription')), 404: R[404], 409: R[409], ...authed },
+      },
+    },
+    '/api/stores/me/export': {
+      get: {
+        tags: ['Assinatura'], summary: 'Baixar os dados da loja (JSON)',
+        description: 'Loja, categorias, produtos com variações e pedidos. Continua liberado com a conta suspensa.',
+        security: secured, responses: { 200: ok('Arquivo JSON', { type: 'object', additionalProperties: true }), ...authed },
+      },
+    },
+    // ---------------- backoffice: planos, assinaturas, faturas ----------------
+    '/api/admin/plans': {
+      get: { tags: ['Backoffice'], summary: 'Listar planos', description: 'Ativos primeiro; cada plano traz `subscribersCount`.', security: adminSecured, responses: { 200: ok('Planos', arrayOf('Plan')), ...authed } },
+      post: {
+        tags: ['Backoffice'], summary: 'Criar plano', security: adminSecured,
+        requestBody: body(ref('PlanInput'), { name: 'Delivroo', description: 'Cardápio digital + pedidos', priceCents: 9900 }),
+        responses: { 201: ok('Plano criado', ref('Plan')), 400: R[400], ...authed },
+      },
+    },
+    '/api/admin/plans/{id}': {
+      patch: {
+        tags: ['Backoffice'], summary: 'Editar / ativar / desativar plano',
+        description: 'Mudar o preço vale só para as **próximas** faturas. Plano desativado deixa de ser oferecido, mas quem já o tem continua nele.',
+        security: adminSecured, parameters: [idParam('id', 'ID do plano')],
+        requestBody: body({ type: 'object', properties: { name: { type: 'string' }, description: { type: 'string', nullable: true }, priceCents: { type: 'integer' }, position: { type: 'integer' }, active: { type: 'boolean' } } }, { active: false }),
+        responses: { 200: ok('Plano', ref('Plan')), 400: R[400], 404: R[404], ...authed },
+      },
+      delete: {
+        tags: ['Backoffice'], summary: 'Excluir plano nunca usado',
+        description: 'Se alguma loja já usou (assinatura ou fatura), responde 409 `PLAN_IN_USE`: desative em vez de excluir.',
+        security: adminSecured, parameters: [idParam('id', 'ID do plano')],
+        responses: { 204: R[204], 400: R[400], 404: R[404], 409: R[409], ...authed },
+      },
+    },
+    '/api/admin/stores/{id}/subscription': {
+      get: {
+        tags: ['Backoffice'], summary: 'Assinatura, faturas e histórico de uma loja',
+        security: adminSecured, parameters: [idParam('id', 'ID da loja')],
+        responses: { 200: ok('Assinatura', ref('AdminSubscription')), 400: R[400], 404: R[404], ...authed },
+      },
+    },
+    '/api/admin/stores/{id}/subscription/plan': {
+      put: {
+        tags: ['Backoffice'], summary: 'Definir o plano da loja',
+        security: adminSecured, parameters: [idParam('id', 'ID da loja')],
+        requestBody: body({ type: 'object', required: ['planId'], properties: { planId: { type: 'integer' } } }, { planId: 1 }),
+        responses: { 200: ok('Assinatura', ref('AdminSubscription')), 400: R[400], 404: R[404], 422: R[422], ...authed },
+      },
+    },
+    '/api/admin/stores/{id}/subscription/extend-trial': {
+      post: {
+        tags: ['Backoffice'], summary: 'Estender o teste',
+        description: 'Soma `days` a partir do que for maior: fim do teste atual ou hoje (serve também para teste já vencido, reabrindo a loja).',
+        security: adminSecured, parameters: [idParam('id', 'ID da loja')],
+        requestBody: body({ type: 'object', required: ['days'], properties: { days: { type: 'integer', minimum: 1, maximum: 365 } } }, { days: 7 }),
+        responses: { 200: ok('Assinatura', ref('AdminSubscription')), 400: R[400], 404: R[404], ...authed },
+      },
+    },
+    '/api/admin/stores/{id}/subscription/courtesy': {
+      put: {
+        tags: ['Backoffice'], summary: 'Conceder ou remover cortesia',
+        description: 'Plano grátis: `{ "indefinite": true }` (sem prazo) ou `{ "until": "AAAA-MM-DD" }`. Corpo vazio remove a cortesia. Quando acaba, a loja segue a regra normal (carência de 7 dias a partir do fim).',
+        security: adminSecured, parameters: [idParam('id', 'ID da loja')],
+        requestBody: body({ type: 'object', properties: { indefinite: { type: 'boolean' }, until: { type: 'string', format: 'date', nullable: true } } }, { until: '2026-12-31' }, false),
+        responses: { 200: ok('Assinatura', ref('AdminSubscription')), 400: R[400], 404: R[404], 422: R[422], ...authed },
+      },
+    },
+    '/api/admin/stores/{id}/invoices/{invoiceId}/pay': {
+      post: {
+        tags: ['Backoffice'], summary: 'Marcar fatura como paga (Pix conferido)',
+        description: 'O novo período conta a partir do vencimento (pagou em dia) ou de **hoje** (pagou atrasado — quem estava suspenso volta na hora e não perde o mês pago). 409 se já paga ou cancelada.',
+        security: adminSecured, parameters: [idParam('id', 'ID da loja'), idParam('invoiceId', 'ID da fatura')],
+        requestBody: body({ type: 'object', properties: { note: { type: 'string', maxLength: 255 } } }, { note: 'Pix recebido 09/10' }, false),
+        responses: { 200: ok('Assinatura', ref('AdminSubscription')), 400: R[400], 404: R[404], 409: R[409], ...authed },
+      },
+    },
+    '/api/admin/stores/{id}/invoices/{invoiceId}/void': {
+      post: {
+        tags: ['Backoffice'], summary: 'Cancelar fatura em aberto',
+        security: adminSecured, parameters: [idParam('id', 'ID da loja'), idParam('invoiceId', 'ID da fatura')],
+        requestBody: body({ type: 'object', properties: { reason: { type: 'string', maxLength: 255 } } }, { reason: 'Gerada por engano' }, false),
+        responses: { 200: ok('Assinatura', ref('AdminSubscription')), 400: R[400], 404: R[404], 409: R[409], ...authed },
+      },
+    },
+    '/api/admin/invoices': {
+      get: {
+        tags: ['Backoffice'], summary: 'Faturas de todas as lojas (lista de trabalho)',
+        description: '`reported` = a loja disse que pagou e falta conferir o Pix; `overdue` = em aberto e vencidas.',
+        security: adminSecured,
+        parameters: [
+          { name: 'status', in: 'query', schema: { type: 'string', enum: ['open', 'overdue', 'reported', 'paid', 'void', 'all'], default: 'open' } },
+          { name: 'page', in: 'query', schema: { type: 'integer', minimum: 1, default: 1 } },
+          { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
+        ],
+        responses: { 200: ok('Página de faturas', ref('AdminInvoicePage')), 400: R[400], ...authed },
       },
     },
     '/api/admin/audit-log': {

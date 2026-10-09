@@ -73,4 +73,9 @@ export const adminStoreDto = (s) => ({
   createdAt: s.created_at,
   ordersCount: Number(s.orders_count ?? 0),
   lastOrderAt: s.last_order_at ?? null,
+  billing: {
+    status: s.billing_status ?? null,   // TRIALING, ACTIVE, COURTESY, PAST_DUE, SUSPENDED, CANCELED
+    coveredThrough: s.billing_covered_through ?? null,
+    planName: s.plan_name ?? null,
+  },
 });
