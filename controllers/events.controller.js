@@ -3,6 +3,7 @@ import db from '../db/knex.js';
 import { HttpError, notFound } from '../utils/errors.js';
 import { getTrackingDto } from '../services/order.service.js';
 import { orderChannel, storeChannel, subscribe } from '../services/events.js';
+import { isStoreBlocked } from '../services/storeAccess.js';
 
 // O EventSource do navegador não envia o header Authorization. Por isso a loja troca o JWT por um
 // token de curta duração (só serve para abrir o fluxo) e o passa na query string.
@@ -25,7 +26,7 @@ export const storeStream = async (req, res) => {
   }
   if (decoded.purpose !== 'sse') throw new HttpError(401, 'Não autorizado');
   const store = await db('stores').where({ id: decoded.storeId }).first('id', 'active');
-  if (!store || !store.active) throw new HttpError(401, 'Não autorizado');
+  if (!store || isStoreBlocked(store)) throw new HttpError(401, 'Não autorizado');
 
   if (!subscribe(storeChannel(store.id), req, res)) throw new HttpError(429, 'Muitas conexões abertas para esta loja.');
 };

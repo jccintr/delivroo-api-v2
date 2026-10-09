@@ -39,10 +39,8 @@ const post = async (token, url, body) => {
 // X-Bacon (ponto obrigatório + adicionais repetíveis) e refrigerante. Loja aberta, com entrega e pagamentos.
 export async function seedPizzaria(token) {
   const zoneCentro = await post(token, '/api/stores/delivery-zones', { district: 'Centro', feeCents: 500 });
-  // toda loja nasce com as formas de pagamento padrão (Pix, dinheiro e cartões)
-  const payments = (await api().get('/api/stores/payment-methods').set(auth(token)).expect(200)).body;
-  const pix = payments.find((m) => m.type === 'PIX');
-  const cash = payments.find((m) => m.type === 'CASH');
+  const pix = await post(token, '/api/stores/payment-methods', { name: 'Pix', type: 'PIX' });
+  const cash = await post(token, '/api/stores/payment-methods', { name: 'Dinheiro', type: 'CASH' });
 
   const catPizza = await post(token, '/api/stores/categories', { name: 'Pizzas', position: 1 });
   const catBurger = await post(token, '/api/stores/categories', { name: 'Hambúrgueres', position: 2 });
@@ -106,4 +104,26 @@ export async function seedPizzaria(token) {
     groups: { sabores, borda, extras, ponto, lancheExtras },
     opt,
   };
+}
+
+// ---- backoffice (admin geral) ----
+let adminCounter = 0;
+// Cria um admin direto no banco e devolve { admin, password, token } (token já logado pela API).
+export async function createAdminUser(overrides = {}) {
+  const bcryptjs = (await import('bcryptjs')).default;
+  adminCounter += 1;
+  const password = overrides.password ?? 'senha-admin-123';
+  const email = overrides.email ?? `admin${adminCounter}-${Date.now()}@delivroo.test`;
+  const { password: _ignored, ...rest } = overrides;
+  const [id] = await db('admins').insert({
+    name: `Admin ${adminCounter}`, email, password_hash: await bcryptjs.hash(password, 4), ...rest,
+  });
+  const admin = await db('admins').where({ id }).first();
+  let token = null;
+  if (admin.active) {
+    const res = await api().post('/api/admin/login').send({ email, password });
+    if (res.status !== 200) throw new Error(`login do admin falhou: ${res.status} ${JSON.stringify(res.body)}`);
+    token = res.body.token;
+  }
+  return { admin, email, password, token };
 }

@@ -20,7 +20,7 @@ describe('documentação', () => {
   });
 
   it('documenta todas as rotas declaradas em routes/*.routes.js', () => {
-    const mounts = { 'store.routes.js': '/api/stores', 'public.routes.js': '/api/public', 'city.routes.js': '/api/cities' };
+    const mounts = { 'store.routes.js': '/api/stores', 'public.routes.js': '/api/public', 'city.routes.js': '/api/cities', 'admin.routes.js': '/api/admin' };
     const missing = [];
     for (const [file, prefix] of Object.entries(mounts)) {
       const src = fs.readFileSync(new URL(`../routes/${file}`, import.meta.url), 'utf8');

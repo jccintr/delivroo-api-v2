@@ -13,7 +13,8 @@
     "migrate:fresh:seed": "node scripts/migrate-fresh.js --seed",
     "seed:demo": "node scripts/seed-demo.js",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "admin:create": "node scripts/create-admin.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

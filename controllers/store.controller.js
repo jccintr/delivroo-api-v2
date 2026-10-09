@@ -4,22 +4,14 @@ import db from '../db/knex.js';
 import { HttpError, notFound } from '../utils/errors.js';
 import { storeDto, hourDto } from '../utils/dto.js';
 import { uniqueStoreSlug } from '../utils/slug.js';
-import { listTemplateChoices } from '../templates/index.js';
-import { applyStoreTemplate, createStoreDefaults } from '../services/template.service.js';
+import { isStoreBlocked, STORE_BLOCKED } from '../services/storeAccess.js';
 
 const signToken = (storeId) =>
   jsonwebtoken.sign({ storeId }, process.env.JWT_SECRET_STORE, { expiresIn: process.env.JWT_EXPIRES_IN || '30d' });
 
-// GET /api/stores/templates — opções de cardápio inicial para o cadastro ("Loja vazia" + templates)
-export const listTemplates = (req, res) => {
-  res.json(listTemplateChoices());
-};
-
-// POST /api/stores/register  { name, email, password, phone, cityId, template? }
-// `template` ('pizzaria', 'hamburgueria', 'acai'; 'empty' ou ausente = loja vazia) já cria categorias, produtos e opções.
+// POST /api/stores/register
 export const register = async (req, res) => {
   const { name, email, password, phone, cityId } = req.body;
-  const template = req.body.template && req.body.template !== 'empty' ? req.body.template : null;
 
   const city = await db('cities').where({ id: cityId, active: true }).first('id');
   if (!city) throw new HttpError(422, 'Cidade inválida.');
@@ -27,18 +19,13 @@ export const register = async (req, res) => {
   if (await db('stores').where({ email }).first('id')) throw new HttpError(409, 'Email já cadastrado.');
 
   const slug = await uniqueStoreSlug(db, name);
-  const passwordHash = await bcryptjs.hash(password, 10);
-
-  // loja + padrões + template na mesma transação: se algo falhar, não sobra loja pela metade
-  const id = await db.transaction(async (trx) => {
-    const [storeId] = await trx('stores').insert({ slug, name, email, phone, city_id: cityId, password_hash: passwordHash });
-    await createStoreDefaults(trx, storeId);
-    if (template) await applyStoreTemplate(trx, storeId, template);
-    return storeId;
+  const [id] = await db('stores').insert({
+    slug, name, email, phone, city_id: cityId,
+    password_hash: await bcryptjs.hash(password, 10),
   });
 
   const store = await db('stores').where({ id }).first();
-  res.status(201).json({ token: signToken(id), store: storeDto(store), template });
+  res.status(201).json({ token: signToken(id), store: storeDto(store) });
 };
 
 // POST /api/stores/login
@@ -50,7 +37,8 @@ export const login = async (req, res) => {
   if (!store || !(await bcryptjs.compare(password, store.password_hash))) {
     throw new HttpError(401, 'Email e/ou senha inválidos.');
   }
-  if (!store.active) throw new HttpError(403, 'Conta desativada.');
+  // `code` permite ao painel mostrar a mensagem certa (hoje só o bloqueio do admin; no futuro, assinatura)
+  if (isStoreBlocked(store)) throw new HttpError(403, 'Conta desativada.', { code: STORE_BLOCKED });
 
   res.json({ token: signToken(store.id), store: storeDto(store) });
 };

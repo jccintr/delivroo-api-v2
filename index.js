@@ -7,6 +7,12 @@ dotenv.config();
 
 async function start() {
   try {
+    if (!process.env.JWT_SECRET_ADMIN) {
+      console.warn('AVISO: JWT_SECRET_ADMIN não definido — as rotas /api/admin vão responder 500 até você configurar.');
+    } else if (process.env.JWT_SECRET_ADMIN === process.env.JWT_SECRET_STORE) {
+      console.warn('AVISO: JWT_SECRET_ADMIN igual ao JWT_SECRET_STORE — use segredos diferentes.');
+    }
+
     // 1. confere o banco antes de subir
     await db.raw('SELECT 1');
     console.log('Conectado ao banco de dados com sucesso!');

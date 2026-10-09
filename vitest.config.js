@@ -10,6 +10,7 @@ export default defineConfig({
     env: {
       NODE_ENV: 'test',
       JWT_SECRET_STORE: 'segredo-de-teste',
+      JWT_SECRET_ADMIN: 'segredo-admin-de-teste',
       SSE_HEARTBEAT_MS: '150', // heartbeat rápido para o teste
       SSE_MAX_PER_CHANNEL: '3',
       DB_HOST: process.env.DB_HOST || '127.0.0.1',

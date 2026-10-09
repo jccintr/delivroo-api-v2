@@ -16,7 +16,7 @@ const idParam = (name = 'id', description = 'ID') => ({
 const errRef = (description) => ({ description, content: json(ref('Error')) });
 const R = {
   400: errRef('Dados inválidos (validação)'),
-  401: errRef('Token ausente, inválido ou loja desativada'),
+  401: errRef('Token ausente, inválido ou loja desativada (neste caso vem `code: STORE_BLOCKED`)'),
   404: errRef('Não encontrado (ou pertence a outra loja)'),
   409: errRef('Conflito (duplicado, em uso ou transição de status inválida)'),
   422: errRef('Regra de negócio violada'),
@@ -25,6 +25,7 @@ const R = {
 const authed = { 401: R[401] };
 
 const secured = [{ bearerAuth: [] }];
+const adminSecured = [{ adminAuth: [] }];
 
 // upload de imagem (multipart/form-data) — mesmo padrão em logo, produto e opção
 const imageBody = (field) => ({
@@ -113,12 +114,14 @@ export const openapi = {
     { name: 'Configurações', description: 'Zonas de entrega, formas de pagamento e horários' },
     { name: 'Catálogo', description: 'Categorias, produtos, variações e grupos de opções' },
     { name: 'Pedidos', description: 'Pedidos recebidos pela loja' },
+    { name: 'Backoffice', description: 'Admin geral da plataforma (login próprio, segredo JWT próprio): lojas, bloqueio e auditoria. Não mexe no cardápio.' },
     { name: 'Tempo real', description: 'SSE (Server-Sent Events): loja é avisada de pedido novo e cliente de mudança de status' },
     { name: 'Sistema', description: 'Health check' },
   ],
   components: {
     securitySchemes: {
       bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT', description: 'Token devolvido por /api/stores/login ou /register' },
+      adminAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT', description: 'Token devolvido por /api/admin/login (segredo diferente do da loja; expira em 12h)' },
     },
     schemas: {
       Error: {
@@ -151,26 +154,12 @@ export const openapi = {
           createdAt: { type: 'string', format: 'date-time' },
         },
       },
-      AuthResponse: {
-        type: 'object',
-        properties: {
-          token: { type: 'string' }, store: ref('Store'),
-          template: { type: 'string', nullable: true, example: 'pizzaria', description: 'Só no cadastro: template aplicado (`null` = loja vazia).' },
-        },
-      },
-      StoreTemplate: {
-        type: 'object',
-        properties: {
-          key: { type: 'string', example: 'pizzaria' }, name: { type: 'string', example: 'Pizzaria' }, description: { type: 'string' },
-          categories: { type: 'integer', example: 4 }, products: { type: 'integer', example: 13 },
-        },
-      },
+      AuthResponse: { type: 'object', properties: { token: { type: 'string' }, store: ref('Store') } },
       RegisterInput: {
         type: 'object', required: ['name', 'email', 'password', 'phone', 'cityId'],
         properties: {
           name: { type: 'string', minLength: 3, maxLength: 120 }, email: { type: 'string', format: 'email' },
           password: { type: 'string', minLength: 6 }, phone: { type: 'string' }, cityId: { type: 'integer', description: 'ID de uma cidade ativa (GET /api/cities)' },
-          template: { type: 'string', description: 'Cardápio inicial (`key` de GET /api/stores/templates). Ausente ou `empty` = loja vazia. Os preços dos templates são exemplos e devem ser revisados.', example: 'pizzaria' },
         },
       },
       LoginInput: { type: 'object', required: ['email', 'password'], properties: { email: { type: 'string', format: 'email' }, password: { type: 'string' } } },
@@ -425,6 +414,55 @@ export const openapi = {
         type: 'object',
         properties: { page: { type: 'integer' }, limit: { type: 'integer' }, total: { type: 'integer' }, orders: arrayOf('Order') },
       },
+      // ---- backoffice ----
+      Admin: {
+        type: 'object',
+        properties: {
+          id: { type: 'integer' }, name: { type: 'string' }, email: { type: 'string', format: 'email' }, active: { type: 'boolean' },
+          lastLoginAt: { type: 'string', format: 'date-time', nullable: true }, createdAt: { type: 'string', format: 'date-time' },
+        },
+      },
+      AdminAuthResponse: { type: 'object', properties: { token: { type: 'string' }, admin: ref('Admin') } },
+      AdminStore: {
+        type: 'object',
+        description: 'Visão da loja para o admin geral: cadastro e situação (sem cardápio, sem senha).',
+        properties: {
+          id: { type: 'integer' }, slug: { type: 'string' }, name: { type: 'string' }, email: { type: 'string' },
+          emailVerifiedAt: { type: 'string', format: 'date-time', nullable: true }, phone: { type: 'string' },
+          city: { type: 'object', properties: { id: { type: 'integer' }, name: { type: 'string', nullable: true }, state: { type: 'string', nullable: true } } },
+          address: { type: 'object', properties: { street: { type: 'string', nullable: true }, number: { type: 'string', nullable: true }, complement: { type: 'string', nullable: true }, district: { type: 'string', nullable: true }, zipCode: { type: 'string', nullable: true } } },
+          logoUrl: { type: 'string', nullable: true },
+          active: { type: 'boolean', description: 'false = bloqueada pelo admin geral' },
+          isOpen: { type: 'boolean' },
+          deactivatedAt: { type: 'string', format: 'date-time', nullable: true },
+          deactivationReason: { type: 'string', nullable: true, description: 'Nota interna do admin; a loja não vê' },
+          createdAt: { type: 'string', format: 'date-time' },
+          ordersCount: { type: 'integer' },
+          lastOrderAt: { type: 'string', format: 'date-time', nullable: true },
+        },
+      },
+      AdminStoreDetail: {
+        allOf: [ref('AdminStore'), { type: 'object', properties: { productsCount: { type: 'integer' } } }],
+      },
+      AdminStorePage: {
+        type: 'object',
+        properties: { page: { type: 'integer' }, limit: { type: 'integer' }, total: { type: 'integer' }, stores: arrayOf('AdminStore') },
+      },
+      AdminAuditEntry: {
+        type: 'object',
+        properties: {
+          id: { type: 'integer' },
+          action: { type: 'string', example: 'STORE_DEACTIVATED', description: 'STORE_DEACTIVATED, STORE_ACTIVATED, ADMIN_PASSWORD_CHANGED, ADMIN_PASSWORD_RESET_CLI' },
+          admin: { type: 'object', properties: { id: { type: 'integer' }, name: { type: 'string' }, email: { type: 'string' } } },
+          store: { type: 'object', nullable: true, properties: { id: { type: 'integer' }, name: { type: 'string' } } },
+          details: { type: 'object', nullable: true, additionalProperties: true },
+          createdAt: { type: 'string', format: 'date-time' },
+        },
+      },
+      AdminAuditPage: {
+        type: 'object',
+        properties: { page: { type: 'integer' }, limit: { type: 'integer' }, total: { type: 'integer' }, entries: arrayOf('AdminAuditEntry') },
+      },
       ChangeStatusInput: {
         type: 'object', required: ['status'],
         properties: { status: { type: 'string', enum: ['PREPARING', 'READY', 'OUT_FOR_DELIVERY', 'DELIVERED', 'PICKED_UP', 'REJECTED', 'CANCELED', 'RETURNED'] }, reason: { type: 'string', nullable: true, description: 'Obrigatório para REJECTED e CANCELED' } },
@@ -496,18 +534,10 @@ export const openapi = {
         },
       },
     },
-    '/api/stores/templates': {
-      get: {
-        tags: ['Público'], summary: 'Listar templates de cardápio',
-        description: 'Opções de cardápio inicial para o cadastro: `empty` (loja vazia) e templates prontos. Use a `key` em `template` no `POST /api/stores/register`.',
-        responses: { 200: ok('Templates', arrayOf('StoreTemplate')) },
-      },
-    },
     '/api/stores/register': {
       post: {
         tags: ['Conta'], summary: 'Cadastrar loja',
-        description: 'Toda loja nasce com as formas de pagamento padrão (Pix, dinheiro, cartão de débito e de crédito). Com `template`, também nasce com categorias, produtos, variações e opções prontos; a loja começa fechada.',
-        requestBody: body(ref('RegisterInput'), { name: 'Pizzaria do Zé', email: 'ze@exemplo.com', password: '123456', phone: '35999990000', cityId: 1, template: 'pizzaria' }),
+        requestBody: body(ref('RegisterInput'), { name: 'Pizzaria do Zé', email: 'ze@exemplo.com', password: '123456', phone: '35999990000', cityId: 1 }),
         responses: { 201: ok('Loja criada + token', ref('AuthResponse')), 400: R[400], 409: R[409], 422: R[422] },
       },
     },
@@ -516,7 +546,7 @@ export const openapi = {
         tags: ['Conta'], summary: 'Entrar',
         description: 'Devolve o `token` — cole-o em **Authorize** para liberar as rotas com cadeado.',
         requestBody: body(ref('LoginInput'), { email: 'loja@exemplo.com', password: '123456' }),
-        responses: { 200: ok('Token + loja', ref('AuthResponse')), 400: R[400], 401: R[401], 403: errRef('Conta desativada') },
+        responses: { 200: ok('Token + loja', ref('AuthResponse')), 400: R[400], 401: R[401], 403: errRef('Conta desativada (`code: STORE_BLOCKED`)') },
       },
     },
     '/api/stores/me': {
@@ -734,6 +764,74 @@ export const openapi = {
           200: ok('Pedido atualizado', { type: 'object', properties: { order: ref('Order'), message: { type: 'string', nullable: true } } }),
           400: R[400], 404: R[404], 409: R[409], 422: R[422], ...authed,
         },
+      },
+    },
+    // ---------------- backoffice (admin geral) ----------------
+    '/api/admin/login': {
+      post: {
+        tags: ['Backoffice'], summary: 'Login do admin geral',
+        description: 'Admins são criados só por script no servidor (`npm run admin:create`). Após **5 falhas** seguidas para o mesmo email o login é travado por 15 min (429 com `Retry-After`).',
+        requestBody: body(ref('LoginInput'), { email: 'admin@delivroo.app.br', password: 'sua-senha-longa' }),
+        responses: {
+          200: ok('Token + admin', ref('AdminAuthResponse')), 400: R[400],
+          401: errRef('Email e/ou senha inválidos'), 403: errRef('Admin desativado'),
+          429: errRef('Muitas tentativas — veja `retryAfterSeconds`'),
+        },
+      },
+    },
+    '/api/admin/me': {
+      get: { tags: ['Backoffice'], summary: 'Admin logado', security: adminSecured, responses: { 200: ok('Admin', ref('Admin')), ...authed } },
+    },
+    '/api/admin/me/password': {
+      patch: {
+        tags: ['Backoffice'], summary: 'Trocar a própria senha',
+        description: 'Senha atual errada responde **422** (e não 401) para o painel não achar que a sessão acabou.',
+        security: adminSecured,
+        requestBody: body({ type: 'object', required: ['currentPassword', 'newPassword'], properties: { currentPassword: { type: 'string' }, newPassword: { type: 'string', minLength: 10, maxLength: 72 } } }, { currentPassword: 'senha-atual', newPassword: 'nova-senha-bem-longa' }),
+        responses: { 204: { description: 'Senha trocada' }, 400: R[400], 422: R[422], ...authed },
+      },
+    },
+    '/api/admin/stores': {
+      get: {
+        tags: ['Backoffice'], summary: 'Listar lojas (com busca e filtros)',
+        description: 'Mais novas primeiro. `search` procura em nome, email e slug. Cada loja traz `ordersCount` e `lastOrderAt` (para achar lojas paradas).',
+        security: adminSecured,
+        parameters: [
+          { name: 'search', in: 'query', schema: { type: 'string', maxLength: 120 } },
+          { name: 'status', in: 'query', schema: { type: 'string', enum: ['all', 'active', 'inactive'], default: 'all' } },
+          { name: 'cityId', in: 'query', schema: { type: 'integer', minimum: 1 } },
+          { name: 'page', in: 'query', schema: { type: 'integer', minimum: 1, default: 1 } },
+          { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
+        ],
+        responses: { 200: ok('Página de lojas', ref('AdminStorePage')), 400: R[400], ...authed },
+      },
+    },
+    '/api/admin/stores/{id}': {
+      get: { tags: ['Backoffice'], summary: 'Detalhar loja', security: adminSecured, parameters: [idParam('id', 'ID da loja')], responses: { 200: ok('Loja', ref('AdminStoreDetail')), 400: R[400], 404: R[404], ...authed } },
+    },
+    '/api/admin/stores/{id}/active': {
+      patch: {
+        tags: ['Backoffice'], summary: 'Ativar / bloquear a loja',
+        description: [
+          'Bloqueio **manual**. Ao desativar: a loja é fechada (`isOpen=false`), não consegue entrar (403 `STORE_BLOCKED`), o token dela deixa de valer, o cardápio público some (404) e não recebe pedidos.',
+          'O `reason` é uma nota interna (a loja não vê). Repetir o mesmo estado não muda nada e não gera auditoria. Toda mudança é registrada em `/api/admin/audit-log`.',
+        ].join('\n\n'),
+        security: adminSecured, parameters: [idParam('id', 'ID da loja')],
+        requestBody: body({ type: 'object', required: ['active'], properties: { active: { type: 'boolean' }, reason: { type: 'string', nullable: true, maxLength: 255 } } }, { active: false, reason: 'Pedido do proprietário' }),
+        responses: { 200: ok('Loja atualizada', ref('AdminStore')), 400: R[400], 404: R[404], ...authed },
+      },
+    },
+    '/api/admin/audit-log': {
+      get: {
+        tags: ['Backoffice'], summary: 'Auditoria das ações do admin',
+        description: 'Mais recentes primeiro. Use `storeId` para ver o histórico de uma loja.',
+        security: adminSecured,
+        parameters: [
+          { name: 'storeId', in: 'query', schema: { type: 'integer', minimum: 1 } },
+          { name: 'page', in: 'query', schema: { type: 'integer', minimum: 1, default: 1 } },
+          { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 100, default: 30 } },
+        ],
+        responses: { 200: ok('Página de registros', ref('AdminAuditPage')), 400: R[400], ...authed },
       },
     },
   },

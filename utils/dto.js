@@ -49,3 +49,28 @@ export const groupDto = (g, options = []) => ({
   id: g.id, name: g.name, minSelect: g.min_select, maxSelect: g.max_select,
   maxPerOption: g.max_per_option, pricingMode: g.pricing_mode, active: !!g.active, options,
 });
+
+// ---- backoffice (admin geral) ----
+export const adminDto = (a) => ({
+  id: a.id, name: a.name, email: a.email, active: !!a.active, lastLoginAt: a.last_login_at ?? null, createdAt: a.created_at,
+});
+
+// Visão da loja para o admin geral: cadastro + situação. Nunca inclui senha; nada do cardápio.
+export const adminStoreDto = (s) => ({
+  id: s.id,
+  slug: s.slug,
+  name: s.name,
+  email: s.email,
+  emailVerifiedAt: s.email_verified_at ?? null,
+  phone: s.phone,
+  city: { id: s.city_id, name: s.city_name ?? null, state: s.city_state ?? null },
+  address: { street: s.street, number: s.number, complement: s.complement, district: s.district, zipCode: s.zip_code },
+  logoUrl: s.logo_url,
+  active: !!s.active,
+  isOpen: !!s.is_open,
+  deactivatedAt: s.deactivated_at ?? null,
+  deactivationReason: s.deactivation_reason ?? null,
+  createdAt: s.created_at,
+  ordersCount: Number(s.orders_count ?? 0),
+  lastOrderAt: s.last_order_at ?? null,
+});

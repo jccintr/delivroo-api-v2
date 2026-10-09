@@ -33,8 +33,7 @@ Dinheiro é sempre **inteiro em centavos** (`priceCents`, `feeCents`, `totalCent
 **Loja** (`Authorization: Bearer <token>`; o que não é da loja logada responde `404`)
 | | |
 | --- | --- |
-| `POST /api/stores/register`, `POST /api/stores/login` | conta (login devolve `{ token, store }`; o cadastro aceita `template`, ver "Templates de cardápio") |
-| `GET /api/stores/templates` | cardápios iniciais do cadastro: `empty` + `pizzaria`, `hamburgueria`, `acai` (público) |
+| `POST /api/stores/register`, `POST /api/stores/login` | conta (login devolve `{ token, store }`) |
 | `GET/PATCH /api/stores/me`, `PATCH /api/stores/me/status` `{isOpen}` | perfil; abrir/fechar a loja (abrir inicia o turno) |
 | `GET/PUT /api/stores/me/business-hours` | horários (vários intervalos por dia; PUT substitui tudo) |
 | `/api/stores/delivery-zones`, `/api/stores/payment-methods`, `/api/stores/categories` | CRUD (`GET`, `POST`, `PATCH /:id`, `DELETE /:id`) |
@@ -67,21 +66,48 @@ Status: `RECEIVED → PREPARING → (READY → PICKED_UP) | (OUT_FOR_DELIVERY �
 ```
 index.js · app.js · knexfile.js
 db/             knex.js, schema.sql (modelo), seed-demo.js (loja de exemplo), migrations/
-routes/         store, public, city
-controllers/    store, config (bairros/pagamentos), category, product, optionGroup, order, public, city
-validators/     store, catalog, order
-middlewares/    auth.store, validate, error
+routes/         store, public, city, admin
+controllers/    store, config (bairros/pagamentos), category, product, optionGroup, order, public, city,
+                admin (login/senha do admin), admin.stores (lojas, bloqueio, auditoria)
+validators/     store, catalog, order, admin
+middlewares/    auth.store, auth.admin, validate, error
 services/       pricing (cálculo de preço), order.service (pedido em transação), menu.service,
-                catalog.service, orderStatus (fluxo de status), template.service (cardápio inicial)
-templates/      cardápios prontos do cadastro (pizzaria, hamburgueria, açaí) + helpers
-utils/          crud (CRUD genérico por loja), dto, errors, slug
-tests/          vitest + supertest contra MySQL real
-scripts/        seed-demo.js
+                catalog.service, orderStatus (fluxo de status),
+                storeAccess (o que a loja pode fazer), adminAuth, adminAccounts, audit
+utils/          crud (CRUD genérico por loja), dto, errors, slug, loginThrottle
+tests/          vitest + supertest contra MySQL real (146 testes)
+scripts/        seed-demo.js, create-admin.js
 ```
 
 ## Fica para a próxima fase
 
-Upload de imagens (Cloudinary, hoje `imageUrl`/`logoUrl` recebem uma URL) · e-mail de verificação e recuperação de senha (a tabela `auth_codes` já existe) · push da Expo (`store_devices`) — o tempo real do painel e do cliente já é por SSE (seção abaixo) · painel admin (`admins`) · relatórios (resumo do dia, pedidos por dia, histórico mensal) · `docs/openapi.yaml` + Swagger · limite de requisições nas rotas públicas · script de migração dos dados do Laravel.
+Upload de imagens (Cloudinary, hoje `imageUrl`/`logoUrl` recebem uma URL) · e-mail de verificação e recuperação de senha (a tabela `auth_codes` já existe) · push da Expo (`store_devices`) — o tempo real do painel e do cliente já é por SSE (seção abaixo) · cobrança: planos, assinaturas e faturas (o **backoffice** já existe — veja a seção abaixo) · relatórios (resumo do dia, pedidos por dia, histórico mensal) · `docs/openapi.yaml` + Swagger · limite de requisições nas rotas públicas · ~~script de migração dos dados do Laravel~~ (descartado: lojas do Delivroo antigo começam do zero).
+
+## Backoffice (admin geral)
+
+Rotas em `/api/admin/*`, usadas pelo app `delivroo-v2-front-backoffice`. É **independente** do painel da loja: segredo JWT próprio (`JWT_SECRET_ADMIN`), token de 12 h (`ADMIN_JWT_EXPIRES_IN`) e nenhuma rota mexe no cardápio.
+
+| Rota | O que faz |
+|---|---|
+| `POST /api/admin/login` | login (5 falhas seguidas no mesmo email travam por 15 min: 429 + `Retry-After`) |
+| `GET /api/admin/me` · `PATCH /api/admin/me/password` | admin logado · troca de senha |
+| `GET /api/admin/stores?search=&status=&cityId=&page=&limit=` | lista lojas, com `ordersCount` e `lastOrderAt` |
+| `GET /api/admin/stores/:id` | detalhe (cadastro, situação, `productsCount`) |
+| `PATCH /api/admin/stores/:id/active` `{ active, reason? }` | bloqueia / libera a loja |
+| `GET /api/admin/audit-log?storeId=` | quem fez o quê, e quando |
+
+**Criar o primeiro admin** (não existe endpoint público para isso, de propósito):
+
+```bash
+npm run admin:create -- --name "Seu Nome" --email voce@exemplo.com   # pede a senha (mín. 10 caracteres)
+npm run admin:create -- --email voce@exemplo.com --reset             # esqueci a senha (também reativa)
+```
+
+Configure `JWT_SECRET_ADMIN` no `.env` (diferente do `JWT_SECRET_STORE`; o servidor avisa se faltar ou se for igual).
+
+**Bloqueio de loja** (`stores.active`): é o bloqueio *manual* do admin. A loja é fechada, não consegue entrar (login 403 com `code: "STORE_BLOCKED"`), o token dela deixa de valer (401 com o mesmo `code`) e o cardápio público some. O motivo (`deactivationReason`) é nota interna. Toda decisão sobre "o que a loja pode fazer" passa por `services/storeAccess.js` — é lá que o estado de assinatura vai entrar quando existir cobrança, sem mexer nos chamadores.
+
+Limitações conhecidas: o limite de tentativas de login é em memória (reiniciar zera; com várias instâncias cada uma conta a sua); trocar a senha não invalida tokens já emitidos (por isso expiram em 12 h).
 
 ## Documentação interativa (Swagger)
 
@@ -136,21 +162,6 @@ slug `pizzaria-exemplo`, login `loja@exemplo.com` / `123456`, loja aberta, 9 bai
 | Sobremesas (6) | Brownie, Petit Gâteau, Taça de Sorvete … | calda opcional, até 3 bolas (repete sabor) |
 
 Os dados ficam em `db/seed-demo.js` (preços em centavos). As imagens vêm vazias: envie pelas rotas de upload (`PATCH .../image`).
-
-## Templates de cardápio (cadastro)
-
-Toda loja nova nasce com as formas de pagamento padrão (Pix, dinheiro, cartão de débito e de crédito) e **fechada**. No cadastro, `POST /api/stores/register` aceita ainda `template`:
-
-| `template` | O que cria |
-|---|---|
-| ausente ou `empty` | loja vazia |
-| `pizzaria` | Pizzas (Broto/Grande, até 2 sabores, borda, adicionais), Porções, Bebidas, Sobremesas |
-| `hamburgueria` | Hambúrgueres (ponto da carne, adicionais), Combos, Porções, Bebidas |
-| `acai` | Açaí no copo (300/500/700 ml, complementos, coberturas, adicionais), Tigelas, Combo, Bebidas |
-
-Loja, pagamentos e template são gravados numa única transação. `GET /api/stores/templates` lista as opções (com o resumo de cada uma) para montar a tela de cadastro; a resposta do cadastro devolve `template` (o aplicado, ou `null`).
-
-Os **preços dos templates são exemplos** (o painel avisa o dono para revisá-los) e as imagens vêm vazias. Para criar um novo template: copie um arquivo de `templates/`, ajuste os dados (formato descrito em `templates/helpers.js`) e registre-o em `templates/index.js`. `tests/templates.test.js` valida a consistência de todos (grupos usados, limites, preço por tamanho cobrindo todas as variações) e cria uma loja de cada um pela API.
 
 
 ## Tempo real (SSE)
