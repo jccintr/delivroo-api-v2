@@ -151,12 +151,26 @@ export const openapi = {
           createdAt: { type: 'string', format: 'date-time' },
         },
       },
-      AuthResponse: { type: 'object', properties: { token: { type: 'string' }, store: ref('Store') } },
+      AuthResponse: {
+        type: 'object',
+        properties: {
+          token: { type: 'string' }, store: ref('Store'),
+          template: { type: 'string', nullable: true, example: 'pizzaria', description: 'Só no cadastro: template aplicado (`null` = loja vazia).' },
+        },
+      },
+      StoreTemplate: {
+        type: 'object',
+        properties: {
+          key: { type: 'string', example: 'pizzaria' }, name: { type: 'string', example: 'Pizzaria' }, description: { type: 'string' },
+          categories: { type: 'integer', example: 4 }, products: { type: 'integer', example: 13 },
+        },
+      },
       RegisterInput: {
         type: 'object', required: ['name', 'email', 'password', 'phone', 'cityId'],
         properties: {
           name: { type: 'string', minLength: 3, maxLength: 120 }, email: { type: 'string', format: 'email' },
           password: { type: 'string', minLength: 6 }, phone: { type: 'string' }, cityId: { type: 'integer', description: 'ID de uma cidade ativa (GET /api/cities)' },
+          template: { type: 'string', description: 'Cardápio inicial (`key` de GET /api/stores/templates). Ausente ou `empty` = loja vazia. Os preços dos templates são exemplos e devem ser revisados.', example: 'pizzaria' },
         },
       },
       LoginInput: { type: 'object', required: ['email', 'password'], properties: { email: { type: 'string', format: 'email' }, password: { type: 'string' } } },
@@ -482,10 +496,18 @@ export const openapi = {
         },
       },
     },
+    '/api/stores/templates': {
+      get: {
+        tags: ['Público'], summary: 'Listar templates de cardápio',
+        description: 'Opções de cardápio inicial para o cadastro: `empty` (loja vazia) e templates prontos. Use a `key` em `template` no `POST /api/stores/register`.',
+        responses: { 200: ok('Templates', arrayOf('StoreTemplate')) },
+      },
+    },
     '/api/stores/register': {
       post: {
         tags: ['Conta'], summary: 'Cadastrar loja',
-        requestBody: body(ref('RegisterInput'), { name: 'Pizzaria do Zé', email: 'ze@exemplo.com', password: '123456', phone: '35999990000', cityId: 1 }),
+        description: 'Toda loja nasce com as formas de pagamento padrão (Pix, dinheiro, cartão de débito e de crédito). Com `template`, também nasce com categorias, produtos, variações e opções prontos; a loja começa fechada.',
+        requestBody: body(ref('RegisterInput'), { name: 'Pizzaria do Zé', email: 'ze@exemplo.com', password: '123456', phone: '35999990000', cityId: 1, template: 'pizzaria' }),
         responses: { 201: ok('Loja criada + token', ref('AuthResponse')), 400: R[400], 409: R[409], 422: R[422] },
       },
     },

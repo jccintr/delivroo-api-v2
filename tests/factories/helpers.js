@@ -39,8 +39,10 @@ const post = async (token, url, body) => {
 // X-Bacon (ponto obrigatório + adicionais repetíveis) e refrigerante. Loja aberta, com entrega e pagamentos.
 export async function seedPizzaria(token) {
   const zoneCentro = await post(token, '/api/stores/delivery-zones', { district: 'Centro', feeCents: 500 });
-  const pix = await post(token, '/api/stores/payment-methods', { name: 'Pix', type: 'PIX' });
-  const cash = await post(token, '/api/stores/payment-methods', { name: 'Dinheiro', type: 'CASH' });
+  // toda loja nasce com as formas de pagamento padrão (Pix, dinheiro e cartões)
+  const payments = (await api().get('/api/stores/payment-methods').set(auth(token)).expect(200)).body;
+  const pix = payments.find((m) => m.type === 'PIX');
+  const cash = payments.find((m) => m.type === 'CASH');
 
   const catPizza = await post(token, '/api/stores/categories', { name: 'Pizzas', position: 1 });
   const catBurger = await post(token, '/api/stores/categories', { name: 'Hambúrgueres', position: 2 });

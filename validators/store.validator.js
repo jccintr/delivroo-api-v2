@@ -1,4 +1,5 @@
 import { body } from 'express-validator';
+import { EMPTY_CHOICE, TEMPLATE_KEYS } from '../templates/index.js';
 
 export const registerStoreValidator = [
   body('name').trim().notEmpty().withMessage('Nome é obrigatório').isLength({ min: 3, max: 120 }).withMessage('Nome deve ter de 3 a 120 caracteres'),
@@ -6,6 +7,7 @@ export const registerStoreValidator = [
   body('password').notEmpty().withMessage('Senha é obrigatória').isLength({ min: 6 }).withMessage('Senha deve ter pelo menos 6 caracteres'),
   body('phone').trim().notEmpty().withMessage('Telefone é obrigatório'),
   body('cityId').notEmpty().withMessage('Cidade é obrigatória').isInt({ min: 1 }).withMessage('ID da cidade inválido'),
+  body('template').optional({ values: 'falsy' }).isIn([EMPTY_CHOICE.key, ...TEMPLATE_KEYS]).withMessage('Template inválido'),
 ];
 
 export const loginValidator = [

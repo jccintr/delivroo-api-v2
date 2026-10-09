@@ -29,6 +29,7 @@ const router = Router();
 // ---- conta (público) ----
 router.post('/register', registerStoreValidator, validate, Store.register);
 router.post('/login', loginValidator, validate, Store.login);
+router.get('/templates', Store.listTemplates);
 
 // fluxo SSE da loja: autenticado por token curto na query (EventSource não envia headers)
 router.get('/events', Events.storeStream);

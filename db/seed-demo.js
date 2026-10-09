@@ -5,6 +5,7 @@
 // Dinheiro em centavos. Preço de opção como objeto { Broto: 800, Grande: 1200 } = preço por variação (pelo NOME da variação).
 // As imagens ficam vazias de propósito: envie pelas rotas de upload (PATCH .../image) ou pelo painel.
 import bcryptjs from 'bcryptjs';
+import { applyCatalog } from '../services/template.service.js';
 
 export const DEMO = { slug: 'pizzaria-modelo', email: 'pizzaria@gmail.com', password: '123456' };
 
@@ -226,7 +227,7 @@ const CATALOG = [
 ];
 
 const CITIES = [
-  ['Pouso Alegre', 'MG'], ['Itajubá', 'MG'], ['Poços de Caldas', 'MG'], ['Varginha', 'MG'], ['Belo Horizonte', 'MG'], ['Campinas', 'SP'],
+  ['Pouso Alegre', 'MG'],['Brazópolis', 'MG'], ['Itajubá', 'MG'], ['Poços de Caldas', 'MG'], ['Varginha', 'MG'], ['Belo Horizonte', 'MG'], ['Campinas', 'SP'],
 ];
 const slugify = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 
@@ -279,76 +280,14 @@ export async function seedDemo(db) {
     await trx('business_hours').insert(HOURS.map(([weekday, o, c]) => ({ store_id: storeId, weekday, opens_at: `${o}:00`, closes_at: `${c}:00` })));
     await trx('store_message_templates').insert(Object.entries(MESSAGES).map(([status, body]) => ({ store_id: storeId, status, body })));
 
-    // grupos e opções
-    const groupId = {};
-    const optionId = {}; // `${groupKey}|${optionName}` -> id
-    for (const [key, g] of Object.entries(GROUPS)) {
-      const [gid] = await trx('option_groups').insert({
-        store_id: storeId, name: g.name, min_select: g.min, max_select: g.max, max_per_option: g.perOption ?? 1, pricing_mode: g.mode,
-      });
-      groupId[key] = gid;
-      let position = 0;
-      for (const [name, description, price, isDefault] of g.options) {
-        position += 1;
-        const [oid] = await trx('options').insert({
-          group_id: gid, name, description, position, is_default: !!isDefault,
-          price_cents: typeof price === 'number' ? price : 0,
-        });
-        optionId[`${key}|${name}`] = { id: oid, price };
-      }
-    }
+    // grupos, categorias, produtos, variações e preços por variação (mesma rotina dos templates do cadastro)
+    const catalog = await applyCatalog(trx, storeId, { groups: GROUPS, catalog: CATALOG });
 
-    // categorias, produtos, variações e ligação produto <-> grupos
-    const linked = {}; // groupKey -> [variantes dos produtos que usam o grupo]
-    let categoryPosition = 0;
-    for (const { category, products } of CATALOG) {
-      categoryPosition += 1;
-      const [categoryId] = await trx('categories').insert({ store_id: storeId, name: category, position: categoryPosition });
-
-      let productPosition = 0;
-      for (const p of products) {
-        productPosition += 1;
-        const [productId] = await trx('products').insert({
-          store_id: storeId, category_id: categoryId, name: p.name, description: p.description, position: productPosition,
-        });
-
-        const variants = [];
-        let variantPosition = 0;
-        for (const v of p.variants) {
-          variantPosition += 1;
-          const [variantId] = await trx('product_variants').insert({
-            product_id: productId, name: v.name, description: v.description ?? null, price_cents: v.price, position: variantPosition,
-          });
-          variants.push({ id: variantId, name: v.name });
-        }
-
-        let linkPosition = 0;
-        for (const key of p.groups) {
-          linkPosition += 1;
-          await trx('product_option_groups').insert({ product_id: productId, group_id: groupId[key], store_id: storeId, position: linkPosition });
-          (linked[key] ||= []).push(...variants);
-        }
-      }
-    }
-
-    // preço das opções por variação (Broto/Grande), pelo nome da variação
-    const rows = [];
-    for (const [key, g] of Object.entries(GROUPS)) {
-      for (const [name, , price] of g.options) {
-        if (typeof price !== 'object') continue;
-        for (const v of linked[key] ?? []) {
-          if (price[v.name] !== undefined) rows.push({ option_id: optionId[`${key}|${name}`].id, variant_id: v.id, price_cents: price[v.name] });
-        }
-      }
-    }
-    if (rows.length) await trx('option_variant_prices').insert(rows);
-
-    const [{ n: products }] = await trx('products').where({ store_id: storeId }).count({ n: 'id' });
     return {
       storeId,
-      categories: CATALOG.length,
-      products: Number(products),
-      groups: Object.keys(GROUPS).length,
+      categories: catalog.categories,
+      products: catalog.products,
+      groups: catalog.groups,
     };
   });
 }

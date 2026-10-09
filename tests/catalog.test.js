@@ -166,7 +166,7 @@ describe('Cardápio público', () => {
     expect(res.status).toBe(200);
     expect(res.body.store.isOpen).toBe(true);
     expect(res.body.deliveryZones).toEqual([{ id: s.zoneCentro.id, district: 'Centro', feeCents: 500 }]);
-    expect(res.body.paymentMethods.map((m) => m.name)).toEqual(['Dinheiro', 'Pix']) // mesma posição: ordem alfabética;
+    expect(res.body.paymentMethods.map((m) => m.name)).toEqual(['Pix', 'Dinheiro', 'Cartão de débito', 'Cartão de crédito']); // padrões da loja nova, na ordem de posição
     expect(res.body.categories.map((c) => c.name)).toEqual(['Pizzas', 'Hambúrgueres', 'Bebidas']);
 
     const pizza = res.body.categories[0].products[0];

@@ -39,11 +39,18 @@ describe('Taxas de entrega por bairro', () => {
 });
 
 describe('Formas de pagamento', () => {
-  it('cria com tipo, valida o tipo e desativa', async () => {
+  it('nasce com as formas padrão; cria com tipo, valida o tipo, recusa nome repetido e desativa', async () => {
     const { token } = await registerStore();
-    const cash = await api().post('/api/stores/payment-methods').set(auth(token)).send({ name: 'Dinheiro', type: 'CASH' });
+
+    const defaults = (await api().get('/api/stores/payment-methods').set(auth(token)).expect(200)).body;
+    expect(defaults.map((m) => m.name)).toEqual(expect.arrayContaining(['Pix', 'Dinheiro', 'Cartão de débito', 'Cartão de crédito']));
+    expect(defaults).toHaveLength(4);
+    expect(defaults.find((m) => m.name === 'Dinheiro').type).toBe('CASH');
+    expect((await api().post('/api/stores/payment-methods').set(auth(token)).send({ name: 'Dinheiro', type: 'CASH' })).status).toBe(409);
+
+    const cash = await api().post('/api/stores/payment-methods').set(auth(token)).send({ name: 'Vale-refeição', type: 'OTHER' });
     expect(cash.status).toBe(201);
-    expect(cash.body.type).toBe('CASH');
+    expect(cash.body.type).toBe('OTHER');
 
     expect((await api().post('/api/stores/payment-methods').set(auth(token)).send({ name: 'X', type: 'BITCOIN' })).status).toBe(400);
 
