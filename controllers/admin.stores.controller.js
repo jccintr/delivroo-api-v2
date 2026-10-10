@@ -119,3 +119,13 @@ export const auditLog = async (req, res) => {
     })),
   });
 };
+
+// GET /api/admin/cities — só cidades que têm loja (alimenta o filtro da lista de lojas)
+export const citiesWithStores = async (req, res) => {
+  const rows = await db('cities as c')
+    .join('stores as s', 's.city_id', 'c.id')
+    .groupBy('c.id', 'c.name', 'c.state', 'c.slug')
+    .select('c.id', 'c.name', 'c.state', 'c.slug', db.raw('COUNT(s.id) AS stores_count'))
+    .orderBy(['c.name', 'c.state']);
+  res.json(rows.map((r) => ({ id: r.id, name: r.name, state: r.state, slug: r.slug, storesCount: Number(r.stores_count) })));
+};

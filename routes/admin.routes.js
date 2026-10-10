@@ -23,6 +23,7 @@ router.use(AuthAdmin);
 router.get('/me', Admin.me);
 router.patch('/me/password', changePasswordValidator, validate, Admin.changePassword);
 
+router.get('/cities', Stores.citiesWithStores);
 router.get('/stores', listStoresValidator, validate, Stores.list);
 router.get('/stores/:id', storeIdParam, validate, Stores.get);
 router.patch('/stores/:id/active', setActiveValidator, validate, Stores.setActive);

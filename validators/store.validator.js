@@ -6,7 +6,10 @@ export const registerStoreValidator = [
   body('email').trim().notEmpty().withMessage('Email é obrigatório').isEmail().withMessage('Email inválido').normalizeEmail(),
   body('password').notEmpty().withMessage('Senha é obrigatória').isLength({ min: 6 }).withMessage('Senha deve ter pelo menos 6 caracteres'),
   body('phone').trim().notEmpty().withMessage('Telefone é obrigatório'),
-  body('cityId').notEmpty().withMessage('Cidade é obrigatória').isInt({ min: 1 }).withMessage('ID da cidade inválido'),
+  // a cidade vem do IBGE (`ibgeCityId`); `cityId` (id interno) segue aceito por compatibilidade
+  body('ibgeCityId').optional().isInt({ min: 1 }).withMessage('Código da cidade inválido'),
+  body('cityId').optional().isInt({ min: 1 }).withMessage('ID da cidade inválido'),
+  body('cityId').custom((v, { req }) => v || req.body.ibgeCityId).withMessage('Cidade é obrigatória'),
   body('template').optional({ values: 'falsy' }).isIn([EMPTY_CHOICE.key, ...TEMPLATE_KEYS]).withMessage('Template inválido'),
 ];
 
@@ -22,6 +25,7 @@ export const updateProfileValidator = [
   body('name').optional().trim().isLength({ min: 3, max: 120 }).withMessage('Nome deve ter de 3 a 120 caracteres'),
   body('phone').optional().trim().notEmpty().withMessage('Telefone não pode ficar vazio'),
   body('cityId').optional().isInt({ min: 1 }).withMessage('ID da cidade inválido'),
+  body('ibgeCityId').optional().isInt({ min: 1 }).withMessage('Código da cidade inválido'),
   body('street').optional({ values: 'null' }).isString().isLength({ max: 160 }),
   body('number').optional({ values: 'null' }).isString().isLength({ max: 20 }),
   body('complement').optional({ values: 'null' }).isString().isLength({ max: 80 }),

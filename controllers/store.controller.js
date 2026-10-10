@@ -1,5 +1,6 @@
 import bcryptjs from 'bcryptjs';
 import jsonwebtoken from 'jsonwebtoken';
+import { resolveCityId } from '../services/cities.js';
 import db from '../db/knex.js';
 import { HttpError, notFound } from '../utils/errors.js';
 import { storeDto, hourDto } from '../utils/dto.js';
@@ -21,14 +22,20 @@ export const listTemplates = (req, res) => {
   res.json(listTemplateChoices());
 };
 
-// POST /api/stores/register  { name, email, password, phone, cityId, template? }
+// Cidade: `ibgeCityId` (código do IBGE; a linha em `cities` é criada/adotada sob demanda) ou, por compatibilidade, `cityId` interno.
+async function pickCityId({ ibgeCityId, cityId }) {
+  if (ibgeCityId) return resolveCityId(Number(ibgeCityId));
+  if (!(await db('cities').where({ id: cityId, active: true }).first('id'))) throw new HttpError(422, 'Cidade inválida.');
+  return Number(cityId);
+}
+
+// POST /api/stores/register  { name, email, password, phone, ibgeCityId (ou cityId), template? }
 // `template` ('pizzaria', 'hamburgueria', 'acai'; 'empty' ou ausente = loja vazia) já cria categorias, produtos e opções.
 export const register = async (req, res) => {
-  const { name, email, password, phone, cityId } = req.body;
+  const { name, email, password, phone, ibgeCityId } = req.body;
   const template = req.body.template && req.body.template !== 'empty' ? req.body.template : null;
 
-  const city = await db('cities').where({ id: cityId, active: true }).first('id');
-  if (!city) throw new HttpError(422, 'Cidade inválida.');
+  const cityId = await pickCityId(req.body);
 
   if (await db('stores').where({ email }).first('id')) throw new HttpError(409, 'Email já cadastrado.');
 
@@ -85,9 +92,7 @@ export const updateProfile = async (req, res) => {
     if (req.body[camel] !== undefined) data[snake] = req.body[camel];
   }
 
-  if (data.city_id && !(await db('cities').where({ id: data.city_id, active: true }).first('id'))) {
-    throw new HttpError(422, 'Cidade inválida.');
-  }
+  if (req.body.ibgeCityId || data.city_id) data.city_id = await pickCityId(req.body);
 
   const current = await db('stores').where({ id: req.user.id }).first('wait_min_minutes', 'wait_max_minutes');
   const min = data.wait_min_minutes !== undefined ? data.wait_min_minutes : current.wait_min_minutes;

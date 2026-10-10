@@ -171,10 +171,11 @@ export const openapi = {
         },
       },
       RegisterInput: {
-        type: 'object', required: ['name', 'email', 'password', 'phone', 'cityId'],
+        type: 'object', required: ['name', 'email', 'password', 'phone'], description: 'Informe `ibgeCityId` (recomendado) ou `cityId`.',
         properties: {
           name: { type: 'string', minLength: 3, maxLength: 120 }, email: { type: 'string', format: 'email' },
-          password: { type: 'string', minLength: 6 }, phone: { type: 'string' }, cityId: { type: 'integer', description: 'ID de uma cidade ativa (GET /api/cities)' },
+          password: { type: 'string', minLength: 6 }, phone: { type: 'string' }, ibgeCityId: { type: 'integer', description: 'Código IBGE do município (GET /api/locations/states/{uf}/cities)', example: 3147105 },
+          cityId: { type: 'integer', description: 'Legado: ID interno de uma cidade ativa (GET /api/cities)' },
           template: { type: 'string', description: 'Cardápio inicial (`key` de GET /api/stores/templates). Ausente ou `empty` = loja vazia. Os preços dos templates são exemplos e devem ser revisados.', example: 'pizzaria' },
         },
       },
@@ -182,7 +183,7 @@ export const openapi = {
       ProfileInput: {
         type: 'object', description: 'Todos os campos são opcionais; envie só o que mudou. `null` limpa o campo.',
         properties: {
-          name: { type: 'string' }, phone: { type: 'string' }, cityId: { type: 'integer' },
+          name: { type: 'string' }, phone: { type: 'string' }, ibgeCityId: { type: 'integer', description: 'Código IBGE do município' }, cityId: { type: 'integer', description: 'Legado' },
           street: { type: 'string', nullable: true }, number: { type: 'string', nullable: true }, complement: { type: 'string', nullable: true },
           district: { type: 'string', nullable: true }, zipCode: { type: 'string', nullable: true },
           latitude: { type: 'number', nullable: true }, longitude: { type: 'number', nullable: true },
@@ -588,6 +589,16 @@ export const openapi = {
     '/api/cities': {
       get: { tags: ['Público'], summary: 'Listar cidades ativas', description: 'Use o `id` no cadastro da loja.', responses: { 200: ok('Cidades', arrayOf('City')) } },
     },
+    '/api/locations/states': {
+      get: { tags: ['Público'], summary: 'Listar estados (IBGE)', description: 'Fonte: API de Localidades do IBGE, com cache de 24h no servidor. 503 `IBGE_UNAVAILABLE` se o IBGE estiver fora e não houver cópia.', responses: { 200: ok('Estados', { type: 'array', items: { type: 'object', properties: { uf: { type: 'string', example: 'MG' }, name: { type: 'string', example: 'Minas Gerais' } } } }), 503: errRef('IBGE indisponível') } },
+    },
+    '/api/locations/states/{uf}/cities': {
+      get: {
+        tags: ['Público'], summary: 'Listar municípios de um estado (IBGE)', description: 'Use `ibgeId` como `ibgeCityId` no cadastro da loja.',
+        parameters: [{ name: 'uf', in: 'path', required: true, schema: { type: 'string', minLength: 2, maxLength: 2 }, example: 'MG' }],
+        responses: { 200: ok('Municípios', { type: 'array', items: { type: 'object', properties: { ibgeId: { type: 'integer', example: 3147105 }, name: { type: 'string', example: 'Pouso Alegre' } } } }), 400: R[400], 503: errRef('IBGE indisponível') },
+      },
+    },
     '/api/public/stores/{slug}/menu': {
       get: {
         tags: ['Público'], summary: 'Cardápio completo da loja',
@@ -657,7 +668,7 @@ export const openapi = {
       post: {
         tags: ['Conta'], summary: 'Cadastrar loja',
         description: 'Toda loja nasce com as formas de pagamento padrão (Pix, dinheiro, cartão de débito e de crédito). Com `template`, também nasce com categorias, produtos, variações e opções prontos; a loja começa fechada.',
-        requestBody: body(ref('RegisterInput'), { name: 'Pizzaria do Zé', email: 'ze@exemplo.com', password: '123456', phone: '35999990000', cityId: 1, template: 'pizzaria' }),
+        requestBody: body(ref('RegisterInput'), { name: 'Pizzaria do Zé', email: 'ze@exemplo.com', password: '123456', phone: '35999990000', ibgeCityId: 3147105, template: 'pizzaria' }),
         responses: { 201: ok('Loja criada + token', ref('AuthResponse')), 400: R[400], 409: R[409], 422: R[422] },
       },
     },
@@ -910,6 +921,9 @@ export const openapi = {
         requestBody: body({ type: 'object', required: ['currentPassword', 'newPassword'], properties: { currentPassword: { type: 'string' }, newPassword: { type: 'string', minLength: 10, maxLength: 72 } } }, { currentPassword: 'senha-atual', newPassword: 'nova-senha-bem-longa' }),
         responses: { 204: { description: 'Senha trocada' }, 400: R[400], 422: R[422], ...authed },
       },
+    },
+    '/api/admin/cities': {
+      get: { tags: ['Backoffice'], summary: 'Cidades que têm loja', description: 'Para o filtro da lista de lojas. Traz `storesCount`.', security: adminSecured, responses: { 200: ok('Cidades', { type: 'array', items: { type: 'object', properties: { id: { type: 'integer' }, name: { type: 'string' }, state: { type: 'string' }, slug: { type: 'string' }, storesCount: { type: 'integer' } } } }), 401: R[401] } },
     },
     '/api/admin/stores': {
       get: {

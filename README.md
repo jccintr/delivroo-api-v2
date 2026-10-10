@@ -25,10 +25,14 @@ Dinheiro é sempre **inteiro em centavos** (`priceCents`, `feeCents`, `totalCent
 **Público**
 | | |
 | --- | --- |
-| `GET /api/cities` | cidades ativas |
+| `GET /api/locations/states` | estados (UF + nome), vindos do **IBGE** |
+| `GET /api/locations/states/:uf/cities` | municípios do estado (`ibgeId` + nome), vindos do **IBGE** |
+| `GET /api/cities` | (legado) cidades já usadas por alguma loja |
 | `GET /api/public/stores/:slug/menu` | loja, horários, bairros, pagamentos e cardápio completo; o preço de cada opção já vem resolvido **por variação** (`prices: { variantId: centavos }`) |
 | `POST /api/public/stores/:slug/orders` | cria o pedido (o servidor calcula tudo) |
 | `GET /api/public/orders/:publicId` | acompanhamento do pedido (sem telefone) |
+
+> **Cidades:** não há lista pré-cadastrada. A API consulta a API de Localidades do IBGE (gratuita) e guarda o resultado em memória por 24h (se o IBGE cair, serve a cópia antiga). No cadastro a loja envia `ibgeCityId`; a linha em `cities` é criada (ou, se for uma cidade antiga, adotada pelo nome/UF) na primeira loja daquele município. Variáveis opcionais: `IBGE_API_URL`, `IBGE_CACHE_TTL_MS`, `IBGE_TIMEOUT_MS`.
 
 **Loja** (`Authorization: Bearer <token>`; o que não é da loja logada responde `404`)
 | | |
